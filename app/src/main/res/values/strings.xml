@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">S2T Mic</string>
+    <string name="accessibility_description">Zeigt einen Mikrofon-Button an Textfeldern und fügt das diktierte Transkript an der Cursorposition ein.</string>
+</resources>
+
