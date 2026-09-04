@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,8 +58,10 @@ class MainActivity : ComponentActivity() {
     private var microphoneGranted by mutableStateOf(false)
     private var accessibilityEnabled by mutableStateOf(false)
     private var keyStored by mutableStateOf(false)
+    private var positionLocked by mutableStateOf(false)
 
     private val keyStore get() = (application as S2TApplication).apiKeyStore
+    private val overlaySettings get() = (application as S2TApplication).overlaySettingsStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +72,7 @@ class MainActivity : ComponentActivity() {
                     microphoneGranted = microphoneGranted,
                     accessibilityEnabled = accessibilityEnabled,
                     keyStored = keyStored,
+                    positionLocked = positionLocked,
                     onSaveKey = {
                         keyStore.save(it)
                         keyStored = keyStore.hasKey()
@@ -80,6 +84,11 @@ class MainActivity : ComponentActivity() {
                     onOpenAccessibility = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
+                    onPositionLockedChange = {
+                        overlaySettings.setPositionLocked(it)
+                        positionLocked = it
+                    },
+                    onResetPosition = overlaySettings::clearPositions,
                 )
             }
         }
@@ -96,6 +105,7 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
         keyStored = keyStore.hasKey()
+        positionLocked = overlaySettings.isPositionLocked()
 
         val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
         accessibilityEnabled = manager
@@ -112,9 +122,12 @@ class MainActivity : ComponentActivity() {
         microphoneGranted: Boolean,
         accessibilityEnabled: Boolean,
         keyStored: Boolean,
+        positionLocked: Boolean,
         onSaveKey: (String) -> Unit,
         onDeleteKey: () -> Unit,
         onOpenAccessibility: () -> Unit,
+        onPositionLockedChange: (Boolean) -> Unit,
+        onResetPosition: () -> Unit,
     ) {
         var apiKey by remember { mutableStateOf("") }
         var saveMessage by remember { mutableStateOf<String?>(null) }
@@ -196,6 +209,26 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = onOpenAccessibility) { Text("Eingabehilfe öffnen") }
+                }
+
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Mic-Position", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (positionLocked) "Position ist gesperrt; das Icon reagiert nur auf Tippen."
+                            else "Ziehe das Icon an die gewünschte Stelle. Die Position wird automatisch gespeichert.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Position sperren")
+                            Switch(checked = positionLocked, onCheckedChange = onPositionLockedChange)
+                        }
+                        TextButton(onClick = onResetPosition) { Text("Standardposition wiederherstellen") }
+                    }
                 }
 
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {

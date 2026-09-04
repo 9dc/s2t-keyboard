@@ -1,8 +1,8 @@
 package dev.s2tmic.companion.accessibility
 
 import android.accessibilityservice.AccessibilityService
-import android.graphics.Rect
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.Gravity
 import android.view.WindowManager
@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 import dev.s2tmic.companion.S2TApplication
+import dev.s2tmic.companion.data.OverlaySettingsStore
 import dev.s2tmic.companion.dictation.DictationController
 import dev.s2tmic.companion.dictation.DictationState
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +25,7 @@ class DictationAccessibilityService : AccessibilityService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var controller: DictationController
     private lateinit var windowManager: WindowManager
+    private lateinit var overlaySettings: OverlaySettingsStore
     private var overlay: DictationOverlayView? = null
     private var overlayAttached = false
     private var editorAvailable = false
@@ -49,9 +51,18 @@ class DictationAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val keyStore = (application as S2TApplication).apiKeyStore
+        val app = application as S2TApplication
+        val keyStore = app.apiKeyStore
+        overlaySettings = app.overlaySettingsStore
         controller = DictationController(this, keyStore, ::insertAtCursor)
-        overlay = DictationOverlayView(this, windowManager, overlayParams) { controller.toggle() }
+        overlay = DictationOverlayView(
+            context = this,
+            windowManager = windowManager,
+            layoutParams = overlayParams,
+            onTap = { controller.toggle() },
+            canDrag = { !overlaySettings.isPositionLocked() },
+            onPositionChanged = overlaySettings::savePosition,
+        )
 
         scope.launch {
             controller.state.collectLatest { state ->
@@ -126,6 +137,14 @@ class DictationAccessibilityService : AccessibilityService() {
     }
 
     private fun positionOverlayOverKeyboard() {
+        overlaySettings.loadPosition()?.let { stored ->
+            val screenWidth = resources.displayMetrics.widthPixels
+            val screenHeight = resources.displayMetrics.heightPixels
+            overlayParams.x = stored.x.coerceIn(dp(5), (screenWidth - dp(45)).coerceAtLeast(dp(5)))
+            overlayParams.y = stored.y.coerceIn(dp(5), (screenHeight - dp(45)).coerceAtLeast(dp(5)))
+            return
+        }
+
         val keyboardWindow = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
             ?: return
         val keyboardBounds = Rect()

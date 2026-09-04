@@ -8,6 +8,7 @@ and insert the final transcript at the cursor without replacing the keyboard.
 
 - Small button sits over the keyboard's top-right microphone area and appears
   only while a software keyboard and editable field are active
+- Draggable position is saved separately for portrait and landscape and can be locked
 - Recording starts immediately and stays local until stopped
 - Multilingual transcription with Groq Whisper Large V3 Turbo
 - Tap once to start and again to stop and insert the text

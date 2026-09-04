@@ -21,6 +21,8 @@ class DictationOverlayView(
     private val windowManager: WindowManager,
     private val layoutParams: WindowManager.LayoutParams,
     onTap: () -> Unit,
+    canDrag: () -> Boolean,
+    onPositionChanged: (x: Int, y: Int) -> Unit,
 ) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
     private val status = TextView(context)
@@ -71,15 +73,23 @@ class DictationOverlayView(
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    layoutParams.x = (originX - (event.rawX - downX).toInt()).coerceAtLeast(0)
-                    layoutParams.y = (originY - (event.rawY - downY).toInt()).coerceAtLeast(0)
-                    runCatching { windowManager.updateViewLayout(this, layoutParams) }
+                    if (canDrag()) {
+                        val maxX = (resources.displayMetrics.widthPixels - dp(45)).coerceAtLeast(0)
+                        val maxY = (resources.displayMetrics.heightPixels - dp(45)).coerceAtLeast(0)
+                        layoutParams.x = (originX - (event.rawX - downX).toInt()).coerceIn(0, maxX)
+                        layoutParams.y = (originY - (event.rawY - downY).toInt()).coerceIn(0, maxY)
+                        runCatching { windowManager.updateViewLayout(this, layoutParams) }
+                    }
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (abs(event.rawX - downX) < dp(8) && abs(event.rawY - downY) < dp(8)) {
+                    val wasTap = abs(event.rawX - downX) < dp(8) &&
+                        abs(event.rawY - downY) < dp(8)
+                    if (wasTap) {
                         mic.performClick()
+                    } else if (canDrag()) {
+                        onPositionChanged(layoutParams.x, layoutParams.y)
                     }
                     true
                 }
