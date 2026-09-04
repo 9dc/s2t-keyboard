@@ -4,8 +4,9 @@ Eine kleine Android-App, die **Gboard ergänzt und nicht ersetzt**. Sobald ein e
 
 ## Stand der API-Prüfung (4. September 2026)
 
-Der MVP verwendet bewusst `gpt-live-transcribe` über
-`wss://api.openai.com/v1/realtime?model=gpt-live-transcribe`.
+Der MVP verbindet sich mit einer Realtime-Session über
+`wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1` und verwendet darin
+bewusst `gpt-live-transcribe` als Transkriptionsmodell.
 
 - Die [offizielle OpenAI-Anleitung zur Realtime-Transkription](https://developers.openai.com/api/docs/guides/realtime-transcription) empfiehlt `gpt-live-transcribe` für Live-Audio und liefert `conversation.item.input_audio_transcription.delta` sowie `...completed`.
 - `gpt-transcribe` ist laut derselben Anleitung für **committete** Audioturns gedacht; die Transkription beginnt dort erst nach dem Commit. Das erfüllt die gewünschte Live-Anzeige schlechter.

@@ -37,7 +37,7 @@ class OpenAiRealtimeTranscriber(
 
     fun connect() {
         val request = Request.Builder()
-            .url("wss://api.openai.com/v1/realtime?model=$MODEL")
+            .url("wss://api.openai.com/v1/realtime?model=$REALTIME_SESSION_MODEL")
             .header("Authorization", "Bearer $apiKey")
             .build()
         webSocket = client.newWebSocket(request, SocketListener())
@@ -74,7 +74,7 @@ class OpenAiRealtimeTranscriber(
 
     private fun sendSessionConfiguration(socket: WebSocket) {
         val transcription = JSONObject()
-            .put("model", MODEL)
+            .put("model", TRANSCRIPTION_MODEL)
             .put("languages", org.json.JSONArray(listOf("de", "en")))
             .put("delay", "low")
             .put(
@@ -151,9 +151,9 @@ class OpenAiRealtimeTranscriber(
     }
 
     private companion object {
-        const val MODEL = "gpt-live-transcribe"
+        const val REALTIME_SESSION_MODEL = "gpt-realtime-2.1"
+        const val TRANSCRIPTION_MODEL = "gpt-live-transcribe"
         const val MIN_AUDIO_BYTES = 4_800L // 100 ms of mono PCM16 at 24 kHz
         const val FINAL_TIMEOUT_MS = 20_000L
     }
 }
-
