@@ -8,8 +8,10 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import dev.s2tmic.companion.R
 import dev.s2tmic.companion.dictation.DictationState
 import kotlin.math.abs
 
@@ -22,12 +24,12 @@ class DictationOverlayView(
 ) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
     private val status = TextView(context)
-    private val mic = TextView(context)
+    private val mic = ImageView(context)
 
     init {
         orientation = VERTICAL
         gravity = Gravity.END
-        setPadding(dp(8), dp(8), dp(8), dp(8))
+        setPadding(dp(3), dp(3), dp(3), dp(3))
 
         status.apply {
             visibility = View.GONE
@@ -43,15 +45,15 @@ class DictationOverlayView(
         })
 
         mic.apply {
-            text = "🎙"
-            textSize = 27f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setImageResource(R.drawable.ic_overlay_mic)
+            setColorFilter(Color.WHITE)
+            scaleType = ImageView.ScaleType.CENTER
+            setPadding(dp(9), dp(9), dp(9), dp(9))
             contentDescription = "Diktat starten"
-            elevation = dp(8).toFloat()
-            background = rounded(COLOR_IDLE, 32f)
+            elevation = dp(4).toFloat()
+            background = rounded(COLOR_IDLE, 20f)
         }
-        addView(mic, LayoutParams(dp(62), dp(62)))
+        addView(mic, LayoutParams(dp(40), dp(40)))
 
         var downX = 0f
         var downY = 0f
@@ -90,7 +92,6 @@ class DictationOverlayView(
     fun render(state: DictationState) {
         val (message, color, description) = when (state) {
             DictationState.Idle -> Triple("", COLOR_IDLE, "Diktat starten")
-            DictationState.Connecting -> Triple("Verbinden …", COLOR_CONNECTING, "Verbindung abbrechen")
             is DictationState.Listening -> Triple(
                 state.partialText.ifBlank { "Ich höre zu …" },
                 COLOR_LISTENING,
@@ -98,16 +99,19 @@ class DictationOverlayView(
             )
             is DictationState.Finalizing -> Triple(
                 state.partialText.ifBlank { "Transkript wird erstellt …" },
-                COLOR_CONNECTING,
+                COLOR_PROCESSING,
                 "Transkript wird erstellt",
             )
             is DictationState.Failed -> Triple(state.message, COLOR_ERROR, "Fehler")
         }
         status.text = message
         status.visibility = if (message.isBlank()) View.GONE else View.VISIBLE
-        mic.background = rounded(color, 32f)
+        mic.background = rounded(color, 20f)
         mic.contentDescription = description
-        mic.text = if (state is DictationState.Listening) "■" else "🎙"
+        mic.setImageResource(
+            if (state is DictationState.Listening) R.drawable.ic_overlay_stop
+            else R.drawable.ic_overlay_mic,
+        )
     }
 
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
@@ -119,9 +123,9 @@ class DictationOverlayView(
     private fun dp(value: Int): Int = (value * density).toInt()
 
     private companion object {
-        const val COLOR_IDLE = 0xFF6750A4.toInt()
+        const val COLOR_IDLE = 0xD9202124.toInt()
         const val COLOR_LISTENING = 0xFFD32F2F.toInt()
-        const val COLOR_CONNECTING = 0xFF6D5E0F.toInt()
+        const val COLOR_PROCESSING = 0xFF6D5E0F.toInt()
         const val COLOR_ERROR = 0xFFB3261E.toInt()
     }
 }

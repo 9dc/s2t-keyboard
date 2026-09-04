@@ -6,9 +6,10 @@ and insert the final transcript at the cursor without replacing the keyboard.
 
 ## Features
 
-- Button appears only while a software keyboard and editable field are active
-- Recording starts immediately; connection-time audio is buffered locally
-- Live German/English transcription with `gpt-live-transcribe`
+- Small button sits over the keyboard's top-right microphone area and appears
+  only while a software keyboard and editable field are active
+- Recording starts immediately and stays local until stopped
+- Multilingual transcription with Groq Whisper Large V3 Turbo
 - Tap once to start and again to stop and insert the text
 - 24 kHz mono PCM audio with automatic resampling
 - API key encrypted with Android Keystore
@@ -20,7 +21,7 @@ Download the latest APK from [GitHub Releases](https://github.com/9dc/s2t-keyboa
 install it, then:
 
 1. Open **S2T Mic** and grant microphone access.
-2. Enter an OpenAI API key with available credit.
+2. Enter a Groq API key.
 3. Open Accessibility settings and enable **S2T Mic Accessibility Service**.
 4. Focus a text field and open your keyboard.
 5. Tap the floating microphone, speak, then tap the stop button.
@@ -60,13 +61,12 @@ an existing installation if they are signed with a different key.
 
 ## Notes
 
-- The app connects to a dedicated Realtime transcription session and records
-  immediately while the short connection setup completes in parallel.
+- The app records PCM audio in memory, wraps it as WAV, and uploads it to Groq
+  only after you tap stop.
 - Some hardened apps and custom WebViews may reject Accessibility text insertion.
 - The API key is encrypted at rest but necessarily exists briefly in app memory.
   For distribution to other users, prefer short-lived tokens issued by a backend.
-- OpenAI usage is billed to the supplied API key.
+- Groq usage is billed to the supplied API key.
 
-See the official OpenAI documentation for
-[Realtime transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)
-and [`gpt-live-transcribe`](https://developers.openai.com/api/docs/models/gpt-live-transcribe).
+See the official Groq documentation for
+[speech-to-text](https://console.groq.com/docs/speech-to-text).

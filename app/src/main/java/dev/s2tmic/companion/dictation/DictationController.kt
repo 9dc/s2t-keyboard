@@ -7,7 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import dev.s2tmic.companion.data.ApiKeyStore
-import dev.s2tmic.companion.network.OpenAiRealtimeTranscriber
+import dev.s2tmic.companion.network.GroqWhisperTranscriber
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,14 +21,13 @@ class DictationController(
     val state: StateFlow<DictationState> = mutableState.asStateFlow()
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var transcriber: OpenAiRealtimeTranscriber? = null
+    private var transcriber: GroqWhisperTranscriber? = null
     private var recorder: PcmAudioRecorder? = null
-    private val partial = StringBuilder()
 
     fun toggle() {
         when (mutableState.value) {
             DictationState.Idle, is DictationState.Failed -> start()
-            DictationState.Connecting, is DictationState.Listening -> stopAndCommit()
+            is DictationState.Listening -> stopAndCommit()
             is DictationState.Finalizing -> Unit
         }
     }
@@ -41,21 +40,11 @@ class DictationController(
         }
         val apiKey = keyStore.load()
         if (apiKey.isNullOrBlank()) {
-            fail("OpenAI API-Key fehlt. Bitte die S2T-Mic-App öffnen.")
+            fail("Groq API-Key fehlt. Bitte die S2T-Mic-App öffnen.")
             return
         }
 
-        partial.clear()
-        val client = OpenAiRealtimeTranscriber(apiKey, object : OpenAiRealtimeTranscriber.Listener {
-            override fun onDelta(delta: String) = onMain {
-                partial.append(delta)
-                if (mutableState.value is DictationState.Finalizing) {
-                    mutableState.value = DictationState.Finalizing(partial.toString())
-                } else {
-                    mutableState.value = DictationState.Listening(partial.toString())
-                }
-            }
-
+        val client = GroqWhisperTranscriber(apiKey, object : GroqWhisperTranscriber.Listener {
             override fun onCompleted(transcript: String) = onMain {
                 recorder?.stop()
                 recorder = null
@@ -77,18 +66,16 @@ class DictationController(
         )
         recorder = audioRecorder
         mutableState.value = DictationState.Listening("")
-        client.connect()
         audioRecorder.start()
     }
 
     fun stopAndCommit() {
         when (mutableState.value) {
-            DictationState.Connecting -> cancel()
             is DictationState.Listening -> {
                 recorder?.stop()
                 recorder = null
-                mutableState.value = DictationState.Finalizing(partial.toString())
-                transcriber?.commit()
+                mutableState.value = DictationState.Finalizing("")
+                transcriber?.transcribe()
             }
 
             else -> Unit
@@ -100,7 +87,6 @@ class DictationController(
         recorder = null
         transcriber?.cancel()
         transcriber = null
-        partial.clear()
         mutableState.value = DictationState.Idle
     }
 

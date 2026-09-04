@@ -7,7 +7,7 @@ import android.media.MediaRecorder
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/** Captures mono PCM16 and normalizes it to the 24 kHz required by Realtime. */
+/** Captures mono PCM16 and normalizes it to 24 kHz for the WAV upload. */
 class PcmAudioRecorder(
     private val onAudio24Khz: (ByteArray) -> Unit,
     private val onFailure: (Throwable) -> Unit,

@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity() {
                 )
                 Text("S2T Mic", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 Text(
-                    "Live-Diktat neben Gboard. Der finale Text landet an der aktuellen Cursorposition.",
+                    "Diktat direkt auf Gboard. Der erkannte Text landet an der aktuellen Cursorposition.",
                     style = MaterialTheme.typography.bodyLarge,
                 )
 
@@ -150,7 +150,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                StatusCard("2 · OpenAI API-Key", keyStored) {
+                StatusCard("2 · Groq API-Key", keyStored) {
                     Text(
                         if (keyStored) "Der Key liegt verschlüsselt im Android Keystore. Zum Ersetzen einen neuen eingeben."
                         else "Der Key wird nur lokal und verschlüsselt gespeichert.",
@@ -163,8 +163,8 @@ class MainActivity : ComponentActivity() {
                             apiKey = it
                             saveMessage = null
                         },
-                        label = { Text("OpenAI API-Key") },
-                        placeholder = { Text("sk-…") },
+                        label = { Text("Groq API-Key") },
+                        placeholder = { Text("gsk_…") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -201,13 +201,13 @@ class MainActivity : ComponentActivity() {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("So benutzt du es", fontWeight = FontWeight.Bold)
-                        Text("Öffne ein beliebiges Textfeld mit Gboard. Tippe auf den schwebenden Mic-Button, sprich und tippe erneut zum Einfügen.")
-                        Text("Modell: gpt-live-transcribe · Sprachen: Deutsch + Englisch")
+                        Text("Öffne ein Textfeld mit Gboard. Tippe auf das kleine Mic oben rechts, sprich und tippe erneut zum Einfügen.")
+                        Text("Modell: Groq Whisper Large V3 Turbo · mehrsprachig")
                     }
                 }
 
                 Text(
-                    "Hinweis: Audio wird während eines Diktats an OpenAI übertragen. Ein direkt im Client gespeicherter API-Key ist für ein persönliches MVP geeignet; für eine verteilte App gehört die Authentifizierung auf einen eigenen Server.",
+                    "Hinweis: Nach dem Stoppen wird die Aufnahme zur Transkription an Groq übertragen. Ein direkt im Client gespeicherter API-Key ist für den persönlichen Gebrauch gedacht.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

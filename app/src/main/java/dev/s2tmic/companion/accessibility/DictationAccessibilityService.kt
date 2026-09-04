@@ -1,6 +1,7 @@
 package dev.s2tmic.companion.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.os.Bundle
 import android.view.Gravity
@@ -40,8 +41,8 @@ class DictationAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(12)
-            y = dp(110)
+            x = dp(5)
+            y = dp(110) // Replaced with the detected keyboard position before display.
         }
     }
 
@@ -94,6 +95,7 @@ class DictationAccessibilityService : AccessibilityService() {
         }
         editorAvailable = candidate.isSafeEditor()
         keyboardVisible = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        if (!overlayAttached) positionOverlayOverKeyboard()
         if (!editorAvailable && currentState !is DictationState.Idle && currentState !is DictationState.Failed) {
             controller.cancel()
         }
@@ -121,6 +123,21 @@ class DictationAccessibilityService : AccessibilityService() {
         } else if (!shouldShow && overlayAttached) {
             removeOverlay()
         }
+    }
+
+    private fun positionOverlayOverKeyboard() {
+        val keyboardWindow = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            ?: return
+        val keyboardBounds = Rect()
+        keyboardWindow.getBoundsInScreen(keyboardBounds)
+        if (keyboardBounds.isEmpty) return
+
+        // Gboard's microphone is normally in the top-right 48 dp toolbar cell.
+        // Anchor our 40 dp control there; dragging still handles custom layouts.
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenBottom = resources.displayMetrics.heightPixels
+        overlayParams.x = (screenWidth - keyboardBounds.right + dp(5)).coerceAtLeast(dp(5))
+        overlayParams.y = (screenBottom - keyboardBounds.top - dp(43)).coerceAtLeast(dp(5))
     }
 
     private fun removeOverlay() {

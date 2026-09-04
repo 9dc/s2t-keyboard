@@ -73,10 +73,9 @@ class ApiKeyStore(context: Context) {
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
-        const val KEY_ALIAS = "s2t_openai_api_key_v1"
+        const val KEY_ALIAS = "s2t_groq_api_key_v1"
         const val PREFERENCES = "encrypted_credentials"
-        const val KEY_CIPHERTEXT = "openai_key_ciphertext"
-        const val KEY_IV = "openai_key_iv"
+        const val KEY_CIPHERTEXT = "groq_key_ciphertext"
+        const val KEY_IV = "groq_key_iv"
     }
 }
-
