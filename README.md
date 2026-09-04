@@ -1,101 +1,72 @@
-# S2T Mic – Gboard Companion (MVP)
+# S2T Mic
 
-Eine kleine Android-App, die **Gboard ergänzt und nicht ersetzt**. Sobald ein editierbares Textfeld fokussiert ist, zeigt ein Accessibility Service einen schwebenden Mikrofon-Button. Ein Tipp startet OpenAI Realtime-Transkription, ein zweiter Tipp beendet das Diktat und setzt den finalen Text an der Cursorposition ein.
+S2T Mic adds a draggable, one-tap speech-to-text button above Gboard and other
+Android keyboards. It uses an Accessibility Service to detect editable fields
+and insert the final transcript at the cursor without replacing the keyboard.
 
-## Stand der API-Prüfung (4. September 2026)
+## Features
 
-Der MVP öffnet über `wss://api.openai.com/v1/realtime?intent=transcription`
-eine dedizierte Transkriptions-Session und verwendet darin bewusst
-`gpt-live-transcribe` als Transkriptionsmodell. Die Aufnahme beginnt sofort;
-Audiopakete werden während des kurzen Verbindungsaufbaus lokal gepuffert.
+- Button appears only while a software keyboard and editable field are active
+- Recording starts immediately; connection-time audio is buffered locally
+- Live German/English transcription with `gpt-live-transcribe`
+- Tap once to start and again to stop and insert the text
+- 24 kHz mono PCM audio with automatic resampling
+- API key encrypted with Android Keystore
+- No credential or audio logging; password fields are excluded
 
-- Die [offizielle OpenAI-Anleitung zur Realtime-Transkription](https://developers.openai.com/api/docs/guides/realtime-transcription) empfiehlt `gpt-live-transcribe` für Live-Audio und liefert `conversation.item.input_audio_transcription.delta` sowie `...completed`.
-- `gpt-transcribe` ist laut derselben Anleitung für **committete** Audioturns gedacht; die Transkription beginnt dort erst nach dem Commit. Das erfüllt die gewünschte Live-Anzeige schlechter.
-- Der [offizielle Modell-Eintrag](https://developers.openai.com/api/docs/models/gpt-live-transcribe) führt Realtime-Streaming und den Realtime-Endpoint auf.
-- OpenRouter ist in diesem reduzierten MVP nicht enthalten. Dessen dokumentierter STT-Pfad ist derzeit ein einzelner HTTP-Upload, kein gleichwertiger Realtime-WebSocket mit Deltas.
+## Install and configure
 
-## Enthalten
+Download the latest APK from [GitHub Releases](https://github.com/9dc/s2t-keyboard/releases/latest),
+install it, then:
 
-- Kotlin + Jetpack Compose für Einrichtung und Status
-- `TYPE_ACCESSIBILITY_OVERLAY`, daher keine Berechtigung „Über anderen Apps einblenden“
-- 24-kHz-Mono-PCM16-Aufnahme; Fallback-Resampling für Geräte ohne native 24 kHz
-- Live-Partial-Text direkt neben dem Mic-Button
-- Finales Einfügen über `AccessibilityNodeInfo.ACTION_SET_TEXT` und Wiederherstellung der Cursorposition
-- Deutsch/Englisch als gleichzeitige Language-Hints; Sprachwechsel werden unterstützt
-- API-Key verschlüsselt mit AES-GCM und einem nicht exportierbaren Android-Keystore-Key
-- Keine Backups der Credential-Preferences, keine Key-/Audio-Logs
-- Passwortfelder werden ausgeschlossen
-- Event-basierter Service: Mikrofon, Netzwerk und Rechenarbeit laufen nur während eines Diktats
+1. Open **S2T Mic** and grant microphone access.
+2. Enter an OpenAI API key with available credit.
+3. Open Accessibility settings and enable **S2T Mic Accessibility Service**.
+4. Focus a text field and open your keyboard.
+5. Tap the floating microphone, speak, then tap the stop button.
 
-## Bauen und installieren
+Some Android vendors may require background execution to be allowed in their
+battery settings.
 
-### Android Studio
+### Obtainium
 
-1. Installiere eine aktuelle Android-Studio-Version mit JDK 17 und Android SDK 35.
-2. Öffne diesen Ordner als Projekt und warte auf den Gradle-Sync.
-3. Aktiviere am Oppo **Entwickleroptionen → USB-Debugging** und verbinde es per USB.
-4. Wähle das Gerät in Android Studio und starte die Konfiguration `app`.
+Add this repository URL to Obtainium:
 
-### Kommandozeile
+```text
+https://github.com/9dc/s2t-keyboard
+```
 
-Mit gesetztem `ANDROID_HOME`/`ANDROID_SDK_ROOT`, JDK 17 und einem verbundenen Gerät:
+Tagged releases contain a signed APK with an increasing Android version code.
+
+## Build
+
+Requirements: JDK 17 and Android SDK 35.
 
 ```bash
 ./gradlew test assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Releases und Obtainium
+Tags matching `v*` trigger the GitHub Actions release workflow. Release signing
+uses these repository secrets:
 
-Git-Tags im Format `v*` starten den GitHub-Actions-Workflow. Er testet die App,
-erstellt eine signierte Release-APK und hängt sie an ein GitHub Release. Die
-laufende Workflow-Nummer wird als Android-`versionCode` verwendet, damit
-Obtainium Updates erkennt und installieren kann.
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
 
-Im GitHub-Repository müssen diese Actions-Secrets hinterlegt sein:
+Keep the release keystore backed up. Android cannot install future updates over
+an existing installation if they are signed with a different key.
 
-- `ANDROID_KEYSTORE_BASE64`: Base64-kodierte Release-Keystore-Datei
-- `ANDROID_KEYSTORE_PASSWORD`: Passwort des Keystores
-- `ANDROID_KEY_ALIAS`: Alias des Signierschlüssels
-- `ANDROID_KEY_PASSWORD`: Passwort des Signierschlüssels
+## Notes
 
-Danach lässt sich das Repository in Obtainium über seine GitHub-URL hinzufügen.
-Ein Release wird beispielsweise so ausgelöst:
+- The app connects to a dedicated Realtime transcription session and records
+  immediately while the short connection setup completes in parallel.
+- Some hardened apps and custom WebViews may reject Accessibility text insertion.
+- The API key is encrypted at rest but necessarily exists briefly in app memory.
+  For distribution to other users, prefer short-lived tokens issued by a backend.
+- OpenAI usage is billed to the supplied API key.
 
-```bash
-git tag v0.1.0
-git push origin main v0.1.0
-```
-
-Der Signierschlüssel und seine Passwörter müssen dauerhaft gesichert werden.
-Ohne denselben Schlüssel kann Android keine Updates über eine bestehende
-Installation installieren.
-
-## Auf dem Oppo einrichten und testen
-
-1. Öffne **S2T Mic**.
-2. Erlaube das Mikrofon.
-3. Trage einen OpenAI API-Key mit verfügbarem API-Guthaben ein und tippe **Key speichern**.
-4. Öffne über die App die Eingabehilfen und aktiviere **S2T Mic Eingabehilfe**. Android/ColorOS zeigt dabei eine weitreichende Zugriffswarnung, weil der Service Textfelder lesen und bearbeiten können muss.
-5. Lass Gboard als Standardtastatur eingestellt.
-6. Öffne zuerst eine harmlose Notiz oder einen Chatentwurf, fokussiere das Textfeld und warte auf Gboard. Der lila Mic-Button erscheint unten rechts und kann gezogen werden.
-7. Tippe den Button, sprich Deutsch oder Englisch und beobachte den Partial-Text. Tippe das rote Quadrat zum Beenden. Der finale Text wird an der Cursorposition eingefügt.
-8. Wiederhole den Test in WhatsApp, ChatGPT, Gmail und einem normalen Browser-Textfeld.
-
-Falls ColorOS den Dienst nach längerer Zeit beendet, erlaube für S2T Mic unter Akku-/App-Verwaltung die Hintergrundausführung. Der MVP fordert absichtlich keinen dauerhaften Vordergrunddienst an.
-
-## Bekannte MVP-Grenzen
-
-- Manche sicherheitsgehärteten Apps oder spezielle WebViews verweigern `ACTION_SET_TEXT`. Normale native Editoren und übliche Browserfelder unterstützen es in der Regel.
-- Der API-Key ist verschlüsselt auf dem Gerät, wird für den WebSocket aber naturgemäß kurz im App-Speicher benötigt. Für eine veröffentlichte oder an Dritte verteilte App sollte ein eigener Backend-Token-Service statt eines langlebigen Keys im Client verwendet werden.
-- Die Erkennung der sichtbaren Bildschirmtastatur verwendet deren Accessibility-Fenster. Stark angepasste Android-Versionen können diese Information verzögert melden.
-- Echte Gerätetests benötigen einen abrechenbaren OpenAI-Key und können nicht durch Unit-Tests ersetzt werden.
-
-## Projektstruktur
-
-- `MainActivity.kt`: Compose-Einrichtung
-- `DictationAccessibilityService.kt`: Feld-Erkennung und Einfügen
-- `DictationOverlayView.kt`: verschiebbarer Mic-/Partial-Overlay
-- `OpenAiRealtimeTranscriber.kt`: aktuelles Realtime-WebSocket-Protokoll
-- `PcmAudioRecorder.kt`: Mikrofon und 24-kHz-PCM
-- `ApiKeyStore.kt`: Android-Keystore-Verschlüsselung
+See the official OpenAI documentation for
+[Realtime transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)
+and [`gpt-live-transcribe`](https://developers.openai.com/api/docs/models/gpt-live-transcribe).
