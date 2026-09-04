@@ -46,19 +46,7 @@ class DictationController(
         }
 
         partial.clear()
-        mutableState.value = DictationState.Connecting
         val client = OpenAiRealtimeTranscriber(apiKey, object : OpenAiRealtimeTranscriber.Listener {
-            override fun onReady() = onMain {
-                if (mutableState.value != DictationState.Connecting) return@onMain
-                val audioRecorder = PcmAudioRecorder(
-                    onAudio24Khz = { transcriber?.appendAudio(it) },
-                    onFailure = { fail(it.localizedMessage ?: "Mikrofonfehler") },
-                )
-                recorder = audioRecorder
-                mutableState.value = DictationState.Listening("")
-                audioRecorder.start()
-            }
-
             override fun onDelta(delta: String) = onMain {
                 partial.append(delta)
                 if (mutableState.value is DictationState.Finalizing) {
@@ -83,7 +71,14 @@ class DictationController(
             override fun onFailure(message: String) = fail(message)
         })
         transcriber = client
+        val audioRecorder = PcmAudioRecorder(
+            onAudio24Khz = { transcriber?.appendAudio(it) },
+            onFailure = { fail(it.localizedMessage ?: "Mikrofonfehler") },
+        )
+        recorder = audioRecorder
+        mutableState.value = DictationState.Listening("")
         client.connect()
+        audioRecorder.start()
     }
 
     fun stopAndCommit() {

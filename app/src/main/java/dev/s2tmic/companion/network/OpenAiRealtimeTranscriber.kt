@@ -19,7 +19,6 @@ class OpenAiRealtimeTranscriber(
     private val listener: Listener,
 ) {
     interface Listener {
-        fun onReady()
         fun onDelta(delta: String)
         fun onCompleted(transcript: String)
         fun onFailure(message: String)
@@ -31,35 +30,67 @@ class OpenAiRealtimeTranscriber(
         .build()
     private val terminal = AtomicBoolean(false)
     private val configured = AtomicBoolean(false)
-    private val sentAudioBytes = AtomicLong(0)
+    private val recordedAudioBytes = AtomicLong(0)
+    private val bufferLock = Any()
+    private val pendingAudio = ArrayDeque<ByteArray>()
+    private var pendingAudioBytes = 0
+    private var commitPending = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webSocket: WebSocket? = null
 
     fun connect() {
         val request = Request.Builder()
-            .url("wss://api.openai.com/v1/realtime?model=$REALTIME_SESSION_MODEL")
+            .url("wss://api.openai.com/v1/realtime?intent=transcription")
             .header("Authorization", "Bearer $apiKey")
             .build()
         webSocket = client.newWebSocket(request, SocketListener())
     }
 
     fun appendAudio(pcm16At24Khz: ByteArray) {
-        if (!configured.get() || terminal.get() || pcm16At24Khz.isEmpty()) return
+        if (terminal.get() || pcm16At24Khz.isEmpty()) return
+        var bufferOverflow = false
+        synchronized(bufferLock) {
+            if (terminal.get()) return
+            if (configured.get()) {
+                sendAudio(webSocket, pcm16At24Khz)
+                recordedAudioBytes.addAndGet(pcm16At24Khz.size.toLong())
+            } else if (pendingAudioBytes + pcm16At24Khz.size <= MAX_PENDING_AUDIO_BYTES) {
+                pendingAudio.addLast(pcm16At24Khz)
+                pendingAudioBytes += pcm16At24Khz.size
+                recordedAudioBytes.addAndGet(pcm16At24Khz.size.toLong())
+            } else {
+                bufferOverflow = true
+            }
+        }
+        if (bufferOverflow) fail("Die Verbindung zu OpenAI dauert zu lange")
+    }
+
+    private fun sendAudio(socket: WebSocket?, pcm16At24Khz: ByteArray) {
         val event = JSONObject()
             .put("type", "input_audio_buffer.append")
             .put("audio", Base64.encodeToString(pcm16At24Khz, Base64.NO_WRAP))
-        if (webSocket?.send(event.toString()) == true) {
-            sentAudioBytes.addAndGet(pcm16At24Khz.size.toLong())
-        }
+        socket?.send(event.toString())
     }
 
     fun commit() {
         if (terminal.get()) return
-        if (sentAudioBytes.get() < MIN_AUDIO_BYTES) {
+        if (recordedAudioBytes.get() < MIN_AUDIO_BYTES) {
             fail("Die Aufnahme war zu kurz. Bitte mindestens kurz sprechen.")
             return
         }
-        webSocket?.send(JSONObject().put("type", "input_audio_buffer.commit").toString())
+        val socket = synchronized(bufferLock) {
+            if (!configured.get()) {
+                commitPending = true
+                null
+            } else {
+                webSocket
+            }
+        }
+        socket?.let(::sendCommit)
+    }
+
+    private fun sendCommit(socket: WebSocket) {
+        socket.send(JSONObject().put("type", "input_audio_buffer.commit").toString())
         mainHandler.postDelayed({
             if (!terminal.get()) fail("Zeitüberschreitung beim finalen Transkript")
         }, FINAL_TIMEOUT_MS)
@@ -100,7 +131,7 @@ class OpenAiRealtimeTranscriber(
         val event = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (event.optString("type")) {
             "session.updated", "transcription_session.updated" -> {
-                if (configured.compareAndSet(false, true)) listener.onReady()
+                configureAndFlushPendingAudio()
             }
 
             "conversation.item.input_audio_transcription.delta" -> {
@@ -121,6 +152,18 @@ class OpenAiRealtimeTranscriber(
                 fail(error?.optString("message").orEmpty().ifBlank { "Unbekannter OpenAI-Fehler" })
             }
         }
+    }
+
+    private fun configureAndFlushPendingAudio() {
+        val socket = webSocket ?: return
+        val shouldCommit = synchronized(bufferLock) {
+            if (!configured.compareAndSet(false, true)) return
+            pendingAudio.forEach { sendAudio(socket, it) }
+            pendingAudio.clear()
+            pendingAudioBytes = 0
+            commitPending.also { commitPending = false }
+        }
+        if (shouldCommit) sendCommit(socket)
     }
 
     private fun fail(message: String) {
@@ -151,9 +194,9 @@ class OpenAiRealtimeTranscriber(
     }
 
     private companion object {
-        const val REALTIME_SESSION_MODEL = "gpt-realtime-2.1"
         const val TRANSCRIPTION_MODEL = "gpt-live-transcribe"
         const val MIN_AUDIO_BYTES = 4_800L // 100 ms of mono PCM16 at 24 kHz
+        const val MAX_PENDING_AUDIO_BYTES = 720_000 // 15 seconds while connecting
         const val FINAL_TIMEOUT_MS = 20_000L
     }
 }
