@@ -142,8 +142,8 @@ class DictationAccessibilityService : AccessibilityService() {
         overlaySettings.loadPosition()?.let { stored ->
             val screenWidth = resources.displayMetrics.widthPixels
             val screenHeight = resources.displayMetrics.heightPixels
-            overlayParams.x = stored.x.coerceIn(dp(5), (screenWidth - dp(45)).coerceAtLeast(dp(5)))
-            overlayParams.y = stored.y.coerceIn(dp(5), (screenHeight - dp(45)).coerceAtLeast(dp(5)))
+            overlayParams.x = stored.x.coerceIn(0, (screenWidth - dp(40)).coerceAtLeast(0))
+            overlayParams.y = stored.y.coerceIn(0, (screenHeight - dp(40)).coerceAtLeast(0))
             return
         }
 

@@ -31,7 +31,7 @@ class DictationOverlayView(
     init {
         orientation = VERTICAL
         gravity = Gravity.END
-        setPadding(dp(3), dp(3), dp(3), dp(3))
+        setPadding(dp(3), dp(3), 0, dp(3))
 
         status.apply {
             visibility = View.GONE
