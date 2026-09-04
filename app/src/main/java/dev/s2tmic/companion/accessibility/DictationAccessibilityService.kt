@@ -154,7 +154,11 @@ class DictationAccessibilityService : AccessibilityService() {
         }
 
         checkNotNull(editor)
-        val currentText = editor.text?.toString().orEmpty()
+        val currentText = TextInsertion.editableText(
+            exposedText = editor.text,
+            hintText = editor.hintText,
+            isShowingHintText = editor.isShowingHintText,
+        )
         val start = editor.textSelectionStart.takeIf { it >= 0 } ?: currentText.length
         val end = editor.textSelectionEnd.takeIf { it >= 0 } ?: start
         val result = TextInsertion.atSelection(currentText, start, end, transcript)

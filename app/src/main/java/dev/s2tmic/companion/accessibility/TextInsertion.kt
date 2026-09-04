@@ -3,6 +3,16 @@ package dev.s2tmic.companion.accessibility
 data class TextInsertionResult(val text: String, val cursor: Int)
 
 object TextInsertion {
+    fun editableText(
+        exposedText: CharSequence?,
+        hintText: CharSequence?,
+        isShowingHintText: Boolean,
+    ): String {
+        val text = exposedText?.toString().orEmpty()
+        val hint = hintText?.toString().orEmpty()
+        return if (isShowingHintText || (hint.isNotEmpty() && text == hint)) "" else text
+    }
+
     fun atSelection(
         currentText: String,
         selectionStart: Int,
@@ -36,4 +46,3 @@ object TextInsertion {
 
     private fun Char.isPunctuation(): Boolean = this in ".,;:!?)]}»”’"
 }
-
