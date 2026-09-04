@@ -35,4 +35,10 @@ class TextInsertionTest {
         assertEquals("Hallo.", result.text)
         assertEquals(6, result.cursor)
     }
+
+    @Test
+    fun preparesNaturalSpacingForDirectPaste() {
+        assertEquals(" schöne ", TextInsertion.forPaste("HalloWelt", 5, 5, "schöne"))
+        assertEquals("Hallo", TextInsertion.forPaste("", 0, 0, " Hallo "))
+    }
 }

@@ -103,12 +103,12 @@ class DictationOverlayView(
         val (message, color, description) = when (state) {
             DictationState.Idle -> Triple("", COLOR_IDLE, "Diktat starten")
             is DictationState.Listening -> Triple(
-                state.partialText.ifBlank { "Ich höre zu …" },
+                "",
                 COLOR_LISTENING,
                 "Diktat beenden",
             )
             is DictationState.Finalizing -> Triple(
-                state.partialText.ifBlank { "Transkript wird erstellt …" },
+                "",
                 COLOR_PROCESSING,
                 "Transkript wird erstellt",
             )
@@ -119,8 +119,11 @@ class DictationOverlayView(
         mic.background = rounded(color, 20f)
         mic.contentDescription = description
         mic.setImageResource(
-            if (state is DictationState.Listening) R.drawable.ic_overlay_stop
-            else R.drawable.ic_overlay_mic,
+            when (state) {
+                is DictationState.Listening -> R.drawable.ic_overlay_stop
+                is DictationState.Finalizing -> R.drawable.ic_overlay_processing
+                else -> R.drawable.ic_overlay_mic
+            },
         )
     }
 

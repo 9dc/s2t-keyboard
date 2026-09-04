@@ -1,6 +1,8 @@
 package dev.s2tmic.companion.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Bundle
@@ -180,6 +182,9 @@ class DictationAccessibilityService : AccessibilityService() {
         )
         val start = editor.textSelectionStart.takeIf { it >= 0 } ?: currentText.length
         val end = editor.textSelectionEnd.takeIf { it >= 0 } ?: start
+        val pasteText = TextInsertion.forPaste(currentText, start, end, transcript)
+        if (pasteAtCursor(editor, pasteText)) return
+
         val result = TextInsertion.atSelection(currentText, start, end, transcript)
 
         val setText = Bundle().apply {
@@ -196,6 +201,26 @@ class DictationAccessibilityService : AccessibilityService() {
             )
         } else {
             Toast.makeText(this, "Diese App erlaubt das Einfügen nicht", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun pasteAtCursor(editor: AccessibilityNodeInfo, text: String): Boolean {
+        if (text.isBlank()) return false
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val previousClip = runCatching { clipboard.primaryClip }.getOrElse { return false }
+        return runCatching {
+            clipboard.setPrimaryClip(ClipData.newPlainText("S2T transcript", text))
+            editor.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        }.getOrDefault(false).also {
+            runCatching {
+                if (previousClip != null) {
+                    clipboard.setPrimaryClip(previousClip)
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    clipboard.clearPrimaryClip()
+                } else {
+                    clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+                }
+            }
         }
     }
 

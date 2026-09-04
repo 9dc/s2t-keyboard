@@ -21,6 +21,22 @@ object TextInsertion {
     ): TextInsertionResult {
         val start = minOf(selectionStart, selectionEnd).coerceIn(0, currentText.length)
         val end = maxOf(selectionStart, selectionEnd).coerceIn(start, currentText.length)
+        val insertion = forPaste(currentText, start, end, transcript)
+
+        return TextInsertionResult(
+            text = currentText.replaceRange(start, end, insertion),
+            cursor = start + insertion.length,
+        )
+    }
+
+    fun forPaste(
+        currentText: String,
+        selectionStart: Int,
+        selectionEnd: Int,
+        transcript: String,
+    ): String {
+        val start = minOf(selectionStart, selectionEnd).coerceIn(0, currentText.length)
+        val end = maxOf(selectionStart, selectionEnd).coerceIn(start, currentText.length)
         val spoken = transcript.trim()
 
         val needsLeadingSpace = start > 0 &&
@@ -33,15 +49,11 @@ object TextInsertion {
             !currentText[end].isPunctuation() &&
             !spoken.last().isWhitespace()
 
-        val insertion = buildString {
+        return buildString {
             if (needsLeadingSpace) append(' ')
             append(spoken)
             if (needsTrailingSpace) append(' ')
         }
-        return TextInsertionResult(
-            text = currentText.replaceRange(start, end, insertion),
-            cursor = start + insertion.length,
-        )
     }
 
     private fun Char.isPunctuation(): Boolean = this in ".,;:!?)]}»”’"
