@@ -72,9 +72,10 @@ class PcmAudioRecorder(
     }
 
     fun stop() {
-        if (!running.getAndSet(false)) return
+        running.set(false)
         runCatching { audioRecord?.stop() }
-        recordingThread?.join(800)
+        val thread = recordingThread
+        if (thread != null && thread !== Thread.currentThread()) thread.join(800)
         release()
     }
 

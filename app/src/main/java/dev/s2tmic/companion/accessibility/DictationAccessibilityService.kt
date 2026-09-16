@@ -1,11 +1,12 @@
 package dev.s2tmic.companion.accessibility
 
 import android.accessibilityservice.AccessibilityService
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -33,6 +34,8 @@ class DictationAccessibilityService : AccessibilityService() {
     private var editorAvailable = false
     private var keyboardVisible = false
     private var currentState: DictationState = DictationState.Idle
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    private val refreshRunnable = Runnable { refreshFocusedEditor() }
 
     private val overlayParams by lazy {
         WindowManager.LayoutParams(
@@ -56,7 +59,12 @@ class DictationAccessibilityService : AccessibilityService() {
         val app = application as S2TApplication
         val keyStore = app.apiKeyStore
         overlaySettings = app.overlaySettingsStore
-        controller = DictationController(this, keyStore, ::insertAtCursor)
+        controller = DictationController(
+            this,
+            keyStore,
+            app.transcriptionSettingsStore,
+            ::insertAtCursor,
+        )
         overlay = DictationOverlayView(
             context = this,
             windowManager = windowManager,
@@ -84,7 +92,7 @@ class DictationAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
-            -> refreshFocusedEditor(event.source)
+            -> scheduleRefresh()
 
             else -> Unit
         }
@@ -96,19 +104,26 @@ class DictationAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         if (::controller.isInitialized) controller.cancel()
+        refreshHandler.removeCallbacks(refreshRunnable)
         scope.cancel()
         removeOverlay()
         super.onDestroy()
     }
 
-    private fun refreshFocusedEditor(eventSource: AccessibilityNodeInfo? = null) {
-        val candidate = when {
-            eventSource.isSafeEditor() && eventSource?.isFocused == true -> eventSource
-            else -> findFocusedEditor()
-        }
+    private fun scheduleRefresh() {
+        refreshHandler.removeCallbacks(refreshRunnable)
+        refreshHandler.postDelayed(refreshRunnable, REFRESH_DEBOUNCE_MS)
+    }
+
+    private fun refreshFocusedEditor() {
+        val candidate = findFocusedEditor()
         editorAvailable = candidate.isSafeEditor()
         keyboardVisible = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-        if (!overlayAttached) positionOverlayOverKeyboard()
+        if (!overlayAttached) {
+            positionOverlayOverKeyboard()
+        } else if (overlaySettings.isResetRequested()) {
+            positionOverlayOverKeyboard()
+        }
         if (!editorAvailable && currentState !is DictationState.Idle && currentState !is DictationState.Failed) {
             controller.cancel()
         }
@@ -138,27 +153,43 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun positionOverlayOverKeyboard() {
-        overlaySettings.loadPosition()?.let { stored ->
-            val screenWidth = resources.displayMetrics.widthPixels
-            val screenHeight = resources.displayMetrics.heightPixels
-            overlayParams.x = stored.x.coerceIn(0, (screenWidth - dp(40)).coerceAtLeast(0))
-            overlayParams.y = stored.y.coerceIn(0, (screenHeight - dp(40)).coerceAtLeast(0))
-            return
+    private fun positionOverlayOverKeyboard(): Boolean {
+        val bounds = screenBounds()
+        if (!overlaySettings.isResetRequested()) {
+            overlaySettings.loadPosition()?.let { stored ->
+                overlayParams.x = stored.x.coerceIn(0, (bounds.width() - dp(40)).coerceAtLeast(0))
+                overlayParams.y = stored.y.coerceIn(0, (bounds.height() - dp(40)).coerceAtLeast(0))
+                applyOverlayLayout()
+                return true
+            }
         }
 
         val keyboardWindow = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-            ?: return
+            ?: return false
         val keyboardBounds = Rect()
         keyboardWindow.getBoundsInScreen(keyboardBounds)
-        if (keyboardBounds.isEmpty) return
+        if (keyboardBounds.isEmpty) return false
 
         // Gboard's microphone is normally in the top-right 48 dp toolbar cell.
         // Anchor our 40 dp control there; dragging still handles custom layouts.
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenBottom = resources.displayMetrics.heightPixels
-        overlayParams.x = (screenWidth - keyboardBounds.right + dp(5)).coerceAtLeast(dp(5))
-        overlayParams.y = (screenBottom - keyboardBounds.top - dp(43)).coerceAtLeast(dp(5))
+        overlayParams.x = (bounds.width() - keyboardBounds.right + dp(5)).coerceAtLeast(dp(5))
+        overlayParams.y = (bounds.height() - keyboardBounds.top - dp(43)).coerceAtLeast(dp(5))
+        overlaySettings.consumeResetRequest()
+        applyOverlayLayout()
+        return true
+    }
+
+    private fun applyOverlayLayout() {
+        if (!overlayAttached) return
+        overlay?.let { runCatching { windowManager.updateViewLayout(it, overlayParams) } }
+    }
+
+    private fun screenBounds(): Rect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        windowManager.currentWindowMetrics.bounds
+    } else {
+        @Suppress("DEPRECATION")
+        val metrics = resources.displayMetrics
+        Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
     }
 
     private fun removeOverlay() {
@@ -182,9 +213,6 @@ class DictationAccessibilityService : AccessibilityService() {
         )
         val start = editor.textSelectionStart.takeIf { it >= 0 } ?: currentText.length
         val end = editor.textSelectionEnd.takeIf { it >= 0 } ?: start
-        val pasteText = TextInsertion.forPaste(currentText, start, end, transcript)
-        if (pasteAtCursor(editor, pasteText)) return
-
         val result = TextInsertion.atSelection(currentText, start, end, transcript)
 
         val setText = Bundle().apply {
@@ -204,28 +232,12 @@ class DictationAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun pasteAtCursor(editor: AccessibilityNodeInfo, text: String): Boolean {
-        if (text.isBlank()) return false
-        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        val previousClip = runCatching { clipboard.primaryClip }.getOrElse { return false }
-        return runCatching {
-            clipboard.setPrimaryClip(ClipData.newPlainText("S2T transcript", text))
-            editor.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-        }.getOrDefault(false).also {
-            runCatching {
-                if (previousClip != null) {
-                    clipboard.setPrimaryClip(previousClip)
-                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    clipboard.clearPrimaryClip()
-                } else {
-                    clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-                }
-            }
-        }
-    }
-
     private fun AccessibilityNodeInfo?.isSafeEditor(): Boolean =
         this != null && isEditable && isEnabled && !isPassword
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val REFRESH_DEBOUNCE_MS = 80L
+    }
 }

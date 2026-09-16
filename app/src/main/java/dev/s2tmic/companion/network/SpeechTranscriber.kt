@@ -2,6 +2,7 @@ package dev.s2tmic.companion.network
 
 import android.os.Handler
 import android.os.Looper
+import dev.s2tmic.companion.data.TranscriptionProvider
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -17,8 +18,10 @@ import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Records PCM chunks in memory and submits one WAV file to Groq Whisper. */
-class GroqWhisperTranscriber(
+/** Buffers PCM chunks in memory and submits one WAV file to the selected provider's transcription API. */
+class SpeechTranscriber(
+    private val provider: TranscriptionProvider,
+    private val model: String,
     private val apiKey: String,
     private val listener: Listener,
 ) {
@@ -83,20 +86,25 @@ class GroqWhisperTranscriber(
                 "dictation.wav",
                 wavFromPcm16(pcm).toRequestBody(WAV_MEDIA_TYPE),
             )
-            .addFormDataPart("model", MODEL)
+            .addFormDataPart("model", model)
             .addFormDataPart("response_format", "json")
             .addFormDataPart("temperature", "0")
             .build()
         val request = Request.Builder()
-            .url(TRANSCRIPTIONS_URL)
+            .url(provider.endpoint)
             .header("Authorization", "Bearer $apiKey")
+            .apply {
+                if (provider == TranscriptionProvider.OpenRouter) {
+                    header("X-Title", "S2T Mic")
+                }
+            }
             .post(body)
             .build()
 
         call = client.newCall(request).also { requestCall ->
             requestCall.enqueue(object : Callback {
                 override fun onFailure(call: Call, error: IOException) {
-                    fail(error.localizedMessage ?: "Groq-Verbindung fehlgeschlagen")
+                    fail(error.localizedMessage ?: "${provider.displayName}-Verbindung fehlgeschlagen")
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -142,10 +150,11 @@ class GroqWhisperTranscriber(
     }
 
     private fun httpError(code: Int): String = when (code) {
-        401 -> "Groq API-Key wurde abgelehnt"
-        413 -> "Die Aufnahme ist für Groq zu groß"
-        429 -> "Groq-Limit erreicht. Bitte Rate-Limit und Guthaben prüfen."
-        else -> "Groq-Fehler ($code)"
+        401 -> "${provider.displayName} API-Key wurde abgelehnt"
+        402 -> "OpenRouter-Guthaben reicht nicht. Bitte Credits aufladen."
+        413 -> "Die Aufnahme ist für ${provider.displayName} zu groß"
+        429 -> "${provider.displayName}-Limit erreicht. Bitte Rate-Limit und Guthaben prüfen."
+        else -> "${provider.displayName}-Fehler ($code)"
     }
 
     private fun onMain(action: () -> Unit) {
@@ -174,14 +183,12 @@ class GroqWhisperTranscriber(
         .array()
 
     private companion object {
-        const val TRANSCRIPTIONS_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-        const val MODEL = "whisper-large-v3-turbo"
         const val SAMPLE_RATE = 24_000
         const val BITS_PER_SAMPLE = 16
         const val BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8
         const val WAV_HEADER_BYTES = 44
         const val MIN_AUDIO_BYTES = 4_800 // 100 ms
-        const val MAX_PCM_BYTES = 14_400_000 // 5 minutes, safely below Groq's upload limit
+        const val MAX_PCM_BYTES = 14_400_000 // 5 minutes, safely below the 25 MB upload limit
         val WAV_MEDIA_TYPE = "audio/wav".toMediaType()
     }
 }

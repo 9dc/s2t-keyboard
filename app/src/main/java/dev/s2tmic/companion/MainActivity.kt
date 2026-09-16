@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -31,8 +32,12 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -52,20 +57,32 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import dev.s2tmic.companion.accessibility.DictationAccessibilityService
+import dev.s2tmic.companion.data.TranscriptionProvider
+import dev.s2tmic.companion.network.SttModel
+import dev.s2tmic.companion.network.SttModelsClient
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var microphoneGranted by mutableStateOf(false)
     private var accessibilityEnabled by mutableStateOf(false)
     private var keyStored by mutableStateOf(false)
     private var positionLocked by mutableStateOf(false)
+    private var selectedProvider by mutableStateOf(TranscriptionProvider.Groq)
+    private var selectedModel by mutableStateOf(TranscriptionProvider.Groq.defaultModel)
+    private var openRouterModels by mutableStateOf<List<SttModel>>(emptyList())
+    private var modelsLoading by mutableStateOf(false)
+    private var modelsError by mutableStateOf<String?>(null)
 
     private val keyStore get() = (application as S2TApplication).apiKeyStore
     private val overlaySettings get() = (application as S2TApplication).overlaySettingsStore
+    private val transcriptionSettings get() = (application as S2TApplication).transcriptionSettingsStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         refreshStatus()
+        loadOpenRouterModels()
         setContent {
             S2TTheme {
                 SetupScreen(
@@ -73,12 +90,29 @@ class MainActivity : ComponentActivity() {
                     accessibilityEnabled = accessibilityEnabled,
                     keyStored = keyStored,
                     positionLocked = positionLocked,
+                    selectedProvider = selectedProvider,
+                    selectedModel = selectedModel,
+                    openRouterModels = openRouterModels,
+                    modelsLoading = modelsLoading,
+                    modelsError = modelsError,
+                    onProviderSelected = { provider ->
+                        transcriptionSettings.setSelectedProvider(provider)
+                        selectedProvider = provider
+                        selectedModel = transcriptionSettings.modelFor(provider)
+                        keyStored = keyStore.hasKey(provider)
+                        loadOpenRouterModels()
+                    },
+                    onModelSelected = { modelId ->
+                        transcriptionSettings.setModel(selectedProvider, modelId)
+                        selectedModel = modelId
+                    },
+                    onReloadModels = { loadOpenRouterModels(force = true) },
                     onSaveKey = {
-                        keyStore.save(it)
-                        keyStored = keyStore.hasKey()
+                        keyStore.save(selectedProvider, it)
+                        keyStored = keyStore.hasKey(selectedProvider)
                     },
                     onDeleteKey = {
-                        keyStore.clear()
+                        keyStore.clear(selectedProvider)
                         keyStored = false
                     },
                     onOpenAccessibility = {
@@ -104,7 +138,9 @@ class MainActivity : ComponentActivity() {
             this,
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
-        keyStored = keyStore.hasKey()
+        keyStored = keyStore.hasKey(transcriptionSettings.selectedProvider())
+        selectedProvider = transcriptionSettings.selectedProvider()
+        selectedModel = transcriptionSettings.modelFor(selectedProvider)
         positionLocked = overlaySettings.isPositionLocked()
 
         val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
@@ -117,12 +153,39 @@ class MainActivity : ComponentActivity() {
             }
     }
 
+    private fun loadOpenRouterModels(force: Boolean = false) {
+        if (selectedProvider != TranscriptionProvider.OpenRouter) return
+        if (modelsLoading) return
+        if (!force && openRouterModels.isNotEmpty()) return
+        modelsLoading = true
+        modelsError = null
+        lifecycleScope.launch {
+            runCatching { SttModelsClient.fetchOpenRouterModels() }
+                .onSuccess {
+                    openRouterModels = it
+                    modelsError = null
+                }
+                .onFailure {
+                    modelsError = it.localizedMessage ?: "Modell-Liste konnte nicht geladen werden"
+                }
+            modelsLoading = false
+        }
+    }
+
     @Composable
     private fun SetupScreen(
         microphoneGranted: Boolean,
         accessibilityEnabled: Boolean,
         keyStored: Boolean,
         positionLocked: Boolean,
+        selectedProvider: TranscriptionProvider,
+        selectedModel: String,
+        openRouterModels: List<SttModel>,
+        modelsLoading: Boolean,
+        modelsError: String?,
+        onProviderSelected: (TranscriptionProvider) -> Unit,
+        onModelSelected: (String) -> Unit,
+        onReloadModels: () -> Unit,
         onSaveKey: (String) -> Unit,
         onDeleteKey: () -> Unit,
         onOpenAccessibility: () -> Unit,
@@ -163,7 +226,32 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                StatusCard("2 · Groq API-Key", keyStored) {
+                StatusCard("2 · ${selectedProvider.displayName} API-Key", keyStored) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TranscriptionProvider.entries.forEach { provider ->
+                            FilterChip(
+                                selected = provider == selectedProvider,
+                                onClick = {
+                                    if (provider != selectedProvider) {
+                                        apiKey = ""
+                                        saveMessage = null
+                                        onProviderSelected(provider)
+                                    }
+                                },
+                                label = { Text(provider.displayName) },
+                            )
+                        }
+                    }
+                    if (selectedProvider.hasSelectableModels) {
+                        ModelPicker(
+                            selectedModel = selectedModel,
+                            models = openRouterModels,
+                            loading = modelsLoading,
+                            error = modelsError,
+                            onModelSelected = onModelSelected,
+                            onReload = onReloadModels,
+                        )
+                    }
                     Text(
                         if (keyStored) "Der Key liegt verschlüsselt im Android Keystore. Zum Ersetzen einen neuen eingeben."
                         else "Der Key wird nur lokal und verschlüsselt gespeichert.",
@@ -176,8 +264,10 @@ class MainActivity : ComponentActivity() {
                             apiKey = it
                             saveMessage = null
                         },
-                        label = { Text("Groq API-Key") },
-                        placeholder = { Text("gsk_…") },
+                        label = { Text("${selectedProvider.displayName} API-Key") },
+                        placeholder = {
+                            Text(if (selectedProvider == TranscriptionProvider.Groq) "gsk_…" else "sk-or-…")
+                        },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -235,15 +325,71 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("So benutzt du es", fontWeight = FontWeight.Bold)
                         Text("Öffne ein Textfeld mit Gboard. Tippe auf das kleine Mic oben rechts, sprich und tippe erneut zum Einfügen.")
-                        Text("Modell: Groq Whisper Large V3 Turbo · mehrsprachig")
+                        Text("Modell: $selectedModel · mehrsprachig")
                     }
                 }
 
                 Text(
-                    "Hinweis: Nach dem Stoppen wird die Aufnahme zur Transkription an Groq übertragen. Ein direkt im Client gespeicherter API-Key ist für den persönlichen Gebrauch gedacht.",
+                    "Hinweis: Nach dem Stoppen wird die Aufnahme zur Transkription an ${selectedProvider.displayName} übertragen. Ein direkt im Client gespeicherter API-Key ist für den persönlichen Gebrauch gedacht.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+
+    @Composable
+    private fun ModelPicker(
+        selectedModel: String,
+        models: List<SttModel>,
+        loading: Boolean,
+        error: String?,
+        onModelSelected: (String) -> Unit,
+        onReload: () -> Unit,
+    ) {
+        var expanded by remember { mutableStateOf(false) }
+        val selectedName = models.firstOrNull { it.id == selectedModel }?.name ?: selectedModel
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Modell", style = MaterialTheme.typography.labelLarge)
+            when {
+                loading -> Text("Lade Modelle…", style = MaterialTheme.typography.bodyMedium)
+                error != null -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = onReload) { Text("Erneut laden") }
+                }
+                models.isEmpty() -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text("Keine Modelle geladen.", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onReload) { Text("Laden") }
+                }
+                else -> Box {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(selectedName, maxLines = 1)
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        models.forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model.name) },
+                                onClick = {
+                                    expanded = false
+                                    onModelSelected(model.id)
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
     }

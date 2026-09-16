@@ -10,14 +10,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Stores the API key encrypted with a non-exportable Android Keystore key. */
+/** Stores one API key per [TranscriptionProvider], encrypted with a non-exportable Android Keystore key. */
 class ApiKeyStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
-    fun save(apiKey: String) {
+    fun save(provider: TranscriptionProvider, apiKey: String) {
         val normalized = apiKey.trim()
         if (normalized.isEmpty()) {
-            clear()
+            clear(provider)
             return
         }
 
@@ -25,14 +25,14 @@ class ApiKeyStore(context: Context) {
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
         val ciphertext = cipher.doFinal(normalized.toByteArray(Charsets.UTF_8))
         preferences.edit()
-            .putString(KEY_CIPHERTEXT, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
-            .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putString(ciphertextKey(provider), Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            .putString(ivKey(provider), Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .apply()
     }
 
-    fun load(): String? = runCatching {
-        val encrypted = preferences.getString(KEY_CIPHERTEXT, null) ?: return null
-        val iv = preferences.getString(KEY_IV, null) ?: return null
+    fun load(provider: TranscriptionProvider): String? = runCatching {
+        val encrypted = preferences.getString(ciphertextKey(provider), null) ?: return null
+        val iv = preferences.getString(ivKey(provider), null) ?: return null
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(
             Cipher.DECRYPT_MODE,
@@ -41,15 +41,22 @@ class ApiKeyStore(context: Context) {
         )
         String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)), Charsets.UTF_8)
     }.getOrElse {
-        clear()
+        clear(provider)
         null
     }
 
-    fun hasKey(): Boolean = !load().isNullOrBlank()
+    fun hasKey(provider: TranscriptionProvider): Boolean = !load(provider).isNullOrBlank()
 
-    fun clear() {
-        preferences.edit().clear().apply()
+    fun clear(provider: TranscriptionProvider) {
+        preferences.edit()
+            .remove(ciphertextKey(provider))
+            .remove(ivKey(provider))
+            .apply()
     }
+
+    private fun ciphertextKey(provider: TranscriptionProvider) = "${provider.id}_key_ciphertext"
+
+    private fun ivKey(provider: TranscriptionProvider) = "${provider.id}_key_iv"
 
     private fun getOrCreateSecretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -75,7 +82,5 @@ class ApiKeyStore(context: Context) {
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val KEY_ALIAS = "s2t_groq_api_key_v1"
         const val PREFERENCES = "encrypted_credentials"
-        const val KEY_CIPHERTEXT = "groq_key_ciphertext"
-        const val KEY_IV = "groq_key_iv"
     }
 }

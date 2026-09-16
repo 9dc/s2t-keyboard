@@ -7,7 +7,8 @@ import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import dev.s2tmic.companion.data.ApiKeyStore
-import dev.s2tmic.companion.network.GroqWhisperTranscriber
+import dev.s2tmic.companion.data.TranscriptionSettingsStore
+import dev.s2tmic.companion.network.SpeechTranscriber
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,13 +16,14 @@ import kotlinx.coroutines.flow.asStateFlow
 class DictationController(
     private val context: Context,
     private val keyStore: ApiKeyStore,
+    private val transcriptionSettings: TranscriptionSettingsStore,
     private val onFinalTranscript: (String) -> Unit,
 ) {
     private val mutableState = MutableStateFlow<DictationState>(DictationState.Idle)
     val state: StateFlow<DictationState> = mutableState.asStateFlow()
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var transcriber: GroqWhisperTranscriber? = null
+    private var transcriber: SpeechTranscriber? = null
     private var recorder: PcmAudioRecorder? = null
 
     fun toggle() {
@@ -38,13 +40,15 @@ class DictationController(
             fail("Mikrofonfreigabe fehlt. Bitte die S2T-Mic-App öffnen.")
             return
         }
-        val apiKey = keyStore.load()
+        val provider = transcriptionSettings.selectedProvider()
+        val apiKey = keyStore.load(provider)
         if (apiKey.isNullOrBlank()) {
-            fail("Groq API-Key fehlt. Bitte die S2T-Mic-App öffnen.")
+            fail("${provider.displayName} API-Key fehlt. Bitte die S2T-Mic-App öffnen.")
             return
         }
+        val model = transcriptionSettings.modelFor(provider)
 
-        val client = GroqWhisperTranscriber(apiKey, object : GroqWhisperTranscriber.Listener {
+        val client = SpeechTranscriber(provider, model, apiKey, object : SpeechTranscriber.Listener {
             override fun onCompleted(transcript: String) = onMain {
                 recorder?.stop()
                 recorder = null

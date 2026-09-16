@@ -36,7 +36,14 @@ class OverlaySettingsStore(private val context: Context) {
             .remove("${KEY_Y}_portrait")
             .remove("${KEY_X}_landscape")
             .remove("${KEY_Y}_landscape")
+            .putBoolean(KEY_RESET_REQUESTED, true)
             .apply()
+    }
+
+    fun isResetRequested(): Boolean = preferences.getBoolean(KEY_RESET_REQUESTED, false)
+
+    fun consumeResetRequest() {
+        preferences.edit().putBoolean(KEY_RESET_REQUESTED, false).apply()
     }
 
     private fun orientationSuffix(): String =
@@ -51,5 +58,6 @@ class OverlaySettingsStore(private val context: Context) {
         const val KEY_LOCKED = "position_locked"
         const val KEY_X = "position_x"
         const val KEY_Y = "position_y"
+        const val KEY_RESET_REQUESTED = "position_reset_requested"
     }
 }

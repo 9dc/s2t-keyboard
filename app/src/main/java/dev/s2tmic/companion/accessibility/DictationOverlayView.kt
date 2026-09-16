@@ -3,10 +3,13 @@ package dev.s2tmic.companion.accessibility
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -25,6 +28,15 @@ class DictationOverlayView(
     onPositionChanged: (x: Int, y: Int) -> Unit,
 ) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private val windowBounds: Rect
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            windowManager.currentWindowMetrics.bounds
+        } else {
+            @Suppress("DEPRECATION")
+            val metrics = resources.displayMetrics
+            Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
+        }
     private val status = TextView(context)
     private val mic = ImageView(context)
 
@@ -74,8 +86,8 @@ class DictationOverlayView(
 
                 MotionEvent.ACTION_MOVE -> {
                     if (canDrag()) {
-                        val maxX = (resources.displayMetrics.widthPixels - dp(45)).coerceAtLeast(0)
-                        val maxY = (resources.displayMetrics.heightPixels - dp(45)).coerceAtLeast(0)
+                        val maxX = (windowBounds.width() - dp(45)).coerceAtLeast(0)
+                        val maxY = (windowBounds.height() - dp(45)).coerceAtLeast(0)
                         layoutParams.x = (originX - (event.rawX - downX).toInt()).coerceIn(0, maxX)
                         layoutParams.y = (originY - (event.rawY - downY).toInt()).coerceIn(0, maxY)
                         runCatching { windowManager.updateViewLayout(this, layoutParams) }
@@ -84,8 +96,8 @@ class DictationOverlayView(
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    val wasTap = abs(event.rawX - downX) < dp(8) &&
-                        abs(event.rawY - downY) < dp(8)
+                    val wasTap = abs(event.rawX - downX) < touchSlop &&
+                        abs(event.rawY - downY) < touchSlop
                     if (wasTap) {
                         mic.performClick()
                     } else if (canDrag()) {

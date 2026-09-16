@@ -10,10 +10,11 @@ and insert the final transcript at the cursor without replacing the keyboard.
   only while a software keyboard and editable field are active
 - Draggable position is saved separately for portrait and landscape and can be locked
 - Recording starts immediately and stays local until stopped
-- Multilingual transcription with Groq Whisper Large V3 Turbo
+- Multilingual transcription with a choice of providers: Groq Whisper
+  Large V3 Turbo or OpenRouter (pick from the live list of STT models)
+- Per-provider API keys, each encrypted with Android Keystore
 - Tap once to start and again to stop and insert the text
 - 24 kHz mono PCM audio with automatic resampling
-- API key encrypted with Android Keystore
 - No credential or audio logging; password fields are excluded
 
 ## Install and configure
@@ -22,7 +23,8 @@ Download the latest APK from [GitHub Releases](https://github.com/9dc/s2t-keyboa
 install it, then:
 
 1. Open **S2T Mic** and grant microphone access.
-2. Enter a Groq API key.
+2. Pick a transcription provider and enter its API key. For OpenRouter the
+   app loads the live list of speech-to-text models and lets you choose one.
 3. Open Accessibility settings and enable **S2T Mic Accessibility Service**.
 4. Focus a text field and open your keyboard.
 5. Tap the floating microphone, speak, then tap the stop button.
@@ -62,12 +64,15 @@ an existing installation if they are signed with a different key.
 
 ## Notes
 
-- The app records PCM audio in memory, wraps it as WAV, and uploads it to Groq
-  only after you tap stop.
+- The app records PCM audio in memory, wraps it as WAV, and uploads it to the
+  selected provider only after you tap stop.
 - Some hardened apps and custom WebViews may reject Accessibility text insertion.
 - The API key is encrypted at rest but necessarily exists briefly in app memory.
   For distribution to other users, prefer short-lived tokens issued by a backend.
-- Groq usage is billed to the supplied API key.
+- Usage is billed to the supplied provider key (Groq or OpenRouter).
 
-See the official Groq documentation for
-[speech-to-text](https://console.groq.com/docs/speech-to-text).
+Provider documentation:
+
+- Groq [speech-to-text](https://console.groq.com/docs/speech-to-text)
+- OpenRouter [speech-to-text](https://openrouter.ai/docs/api/api-reference/stt/create-transcription)
+  and the [MAI-Transcribe 2](https://openrouter.ai/microsoft/mai-transcribe-2) model
