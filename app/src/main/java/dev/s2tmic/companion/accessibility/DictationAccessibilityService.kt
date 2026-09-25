@@ -210,6 +210,11 @@ class DictationAccessibilityService : AccessibilityService() {
             exposedText = editor.text,
             hintText = editor.hintText,
             isShowingHintText = editor.isShowingHintText,
+            contentDescription = editor.contentDescription,
+            className = editor.className,
+            packageName = editor.packageName,
+            selectionStart = editor.textSelectionStart,
+            selectionEnd = editor.textSelectionEnd,
         )
         val start = editor.textSelectionStart.takeIf { it >= 0 } ?: currentText.length
         val end = editor.textSelectionEnd.takeIf { it >= 0 } ?: start

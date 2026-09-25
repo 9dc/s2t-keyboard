@@ -7,10 +7,28 @@ object TextInsertion {
         exposedText: CharSequence?,
         hintText: CharSequence?,
         isShowingHintText: Boolean,
+        contentDescription: CharSequence? = null,
+        className: CharSequence? = null,
+        packageName: CharSequence? = null,
+        selectionStart: Int = -1,
+        selectionEnd: Int = -1,
     ): String {
-        val text = exposedText?.toString().orEmpty()
-        val hint = hintText?.toString().orEmpty()
-        return if (isShowingHintText || (hint.isNotEmpty() && text == hint)) "" else text
+        val raw = exposedText?.toString().orEmpty()
+        val text = raw.normalizedText()
+        if (text.isEmpty() || text.isHtmlPlaceholder()) return ""
+
+        val hint = hintText.normalizedText()
+        if (isShowingHintText || (hint.isNotEmpty() && text.placeholderKey() == hint.placeholderKey())) return ""
+
+        val description = contentDescription.normalizedText()
+        if (description.isNotEmpty() && text.placeholderKey() == description.placeholderKey()) return ""
+
+        if (knownPlaceholders.any { text.placeholderKey() == it }) return ""
+
+        val caretAtStart = selectionStart <= 1 && selectionEnd <= 1
+        if (isWebLike(packageName, className) && looksLikeWebPlaceholder(text, strict = !caretAtStart)) return ""
+
+        return raw
     }
 
     fun atSelection(
@@ -57,4 +75,81 @@ object TextInsertion {
     }
 
     private fun Char.isPunctuation(): Boolean = this in ".,;:!?)]}»”’"
+
+    private fun CharSequence?.normalizedText(): String = this?.toString().orEmpty()
+        .replace('\u00A0', ' ')
+        .replace("\u200B", "")
+        .replace("\uFEFF", "")
+        .trim()
+
+    private fun String.isHtmlPlaceholder(): Boolean {
+        val compact = lowercase().replace("\\s+".toRegex(), "")
+        return compact == "<br>" ||
+            compact == "<br/>" ||
+            compact == "<div><br></div>" ||
+            compact == "<p><br></p>"
+    }
+
+    private fun isWebLike(packageName: CharSequence?, className: CharSequence?): Boolean {
+        val pkg = packageName?.toString()?.lowercase().orEmpty()
+        val cls = className?.toString()?.lowercase().orEmpty()
+        return pkg.contains("chrome") ||
+            pkg.contains("browser") ||
+            pkg.contains("webview") ||
+            pkg.contains("firefox") ||
+            pkg.contains("mozilla") ||
+            cls.contains("webview") ||
+            cls.contains("webkit") ||
+            cls.contains("gecko")
+    }
+
+    private fun looksLikeWebPlaceholder(text: String, strict: Boolean): Boolean {
+        if (text.length > MAX_PLACEHOLDER_LENGTH) return false
+        val key = text.placeholderKey()
+        val prefixes = if (strict) strictPlaceholderPrefixes else loosePlaceholderPrefixes
+        return prefixes.any { key.startsWith(it) }
+    }
+
+    private fun String.placeholderKey(): String = lowercase().trimEnd(' ', '.', '\u2026', '!')
+
+    private const val MAX_PLACEHOLDER_LENGTH = 140
+
+    private val knownPlaceholders = listOf(
+        "message",
+        "nachricht",
+        "type a message",
+        "write a message",
+        "schreibe eine nachricht",
+        "schreibe deine nachricht",
+        "nachricht schreiben",
+        "search",
+        "suche",
+        "text eingeben",
+    )
+
+    private val strictPlaceholderPrefixes = listOf(
+        "write your message",
+        "enter your message",
+        "type your message",
+        "nachricht schreiben",
+        "schreibe eine nachricht",
+        "schreibe deine nachricht",
+    )
+
+    private val loosePlaceholderPrefixes = strictPlaceholderPrefixes + listOf(
+        "write ",
+        "enter ",
+        "type ",
+        "search ",
+        "send a message",
+        "schreibe ",
+        "schreib ",
+        "tippe ",
+        "gib ",
+        "geben sie ",
+        "suche ",
+        "suchbegriff",
+        "verfasse ",
+        "eingeben",
+    )
 }
