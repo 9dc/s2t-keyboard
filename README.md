@@ -8,13 +8,20 @@ and insert the final transcript at the cursor without replacing the keyboard.
 
 - Small button sits over the keyboard's top-right microphone area and appears
   only while a software keyboard and editable field are active
-- Draggable position is saved separately for portrait and landscape and can be locked
+- Draggable position follows the keyboard's top edge, is saved separately for
+  portrait and landscape and can be locked
 - Recording starts immediately and stays local until stopped
 - Multilingual transcription with a choice of providers: Groq Whisper
-  Large V3 Turbo or OpenRouter (pick from the live list of STT models)
+  Large V3 Turbo or OpenRouter (pick from the live list of STT models);
+  the spoken language can be pinned for better accuracy on short dictations
 - Per-provider API keys, each encrypted with Android Keystore
-- Tap once to start and again to stop and insert the text
-- 24 kHz mono PCM audio with automatic resampling
+- Tap once to start and again to stop and insert the text; long-press to
+  discard a recording or a running transcription
+- On Android 13+ the text is typed through the field's input connection like
+  a keyboard would; older versions rewrite the field's text
+- A transcript that cannot be inserted is copied to the clipboard, and a
+  failed upload can be sent again with one tap
+- 16 kHz mono PCM audio with automatic resampling, up to 5 minutes per dictation
 - No credential or audio logging; password fields are excluded
 
 ## Install and configure
@@ -25,7 +32,9 @@ install it, then:
 1. Open **S2T Mic** and grant microphone access.
 2. Pick a transcription provider and enter its API key. For OpenRouter the
    app loads the live list of speech-to-text models and lets you choose one.
-3. Open Accessibility settings and enable **S2T Mic Accessibility Service**.
+3. Open Accessibility settings and enable **S2T Mic Eingabehilfe**. If Android
+   13+ greys the switch out for a sideloaded APK, open the app's info page and
+   choose **Allow restricted settings** from the ⋮ menu first.
 4. Focus a text field and open your keyboard.
 5. Tap the floating microphone, speak, then tap the stop button.
 

@@ -2,11 +2,9 @@ package dev.s2tmic.companion.network
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 data class SttModel(val id: String, val name: String)
 
@@ -15,14 +13,9 @@ object SttModelsClient {
     private const val MODELS_URL =
         "https://openrouter.ai/api/v1/models?output_modalities=transcription"
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
-
     suspend fun fetchOpenRouterModels(): List<SttModel> = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(MODELS_URL).get().build()
-        client.newCall(request).execute().use { response ->
+        TranscriptionApi.client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("Modell-Liste konnte nicht geladen werden (${response.code})")
             }

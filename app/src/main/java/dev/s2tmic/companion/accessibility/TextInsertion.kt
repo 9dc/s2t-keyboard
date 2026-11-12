@@ -25,7 +25,8 @@ object TextInsertion {
 
         if (knownPlaceholders.any { text.placeholderKey() == it }) return ""
 
-        val caretAtStart = selectionStart <= 1 && selectionEnd <= 1
+        // An unknown selection (-1) says nothing about the caret, so it must not loosen the check.
+        val caretAtStart = selectionStart in 0..1 && selectionEnd in 0..1
         if (isWebLike(packageName, className) && looksLikeWebPlaceholder(text, strict = !caretAtStart)) return ""
 
         return raw
@@ -55,17 +56,24 @@ object TextInsertion {
     ): String {
         val start = minOf(selectionStart, selectionEnd).coerceIn(0, currentText.length)
         val end = maxOf(selectionStart, selectionEnd).coerceIn(start, currentText.length)
-        val spoken = transcript.trim()
+        return withSpacing(currentText.getOrNull(start - 1), currentText.getOrNull(end), transcript)
+    }
 
-        val needsLeadingSpace = start > 0 &&
-            spoken.isNotEmpty() &&
-            !currentText[start - 1].isWhitespace() &&
+    /**
+     * The trimmed transcript with the spaces it needs to sit between [before] and [after], the
+     * characters around the cursor or selection (null at the start or end of the text).
+     */
+    fun withSpacing(before: Char?, after: Char?, transcript: String): String {
+        val spoken = transcript.trim()
+        if (spoken.isEmpty()) return spoken
+
+        val needsLeadingSpace = before != null &&
+            !before.isWhitespace() &&
+            !before.isOpening() &&
             !spoken.first().isPunctuation()
-        val needsTrailingSpace = end < currentText.length &&
-            spoken.isNotEmpty() &&
-            !currentText[end].isWhitespace() &&
-            !currentText[end].isPunctuation() &&
-            !spoken.last().isWhitespace()
+        val needsTrailingSpace = after != null &&
+            !after.isWhitespace() &&
+            !after.isPunctuation()
 
         return buildString {
             if (needsLeadingSpace) append(' ')
@@ -75,6 +83,8 @@ object TextInsertion {
     }
 
     private fun Char.isPunctuation(): Boolean = this in ".,;:!?)]}»”’"
+
+    private fun Char.isOpening(): Boolean = this in "([{„«‚"
 
     private fun CharSequence?.normalizedText(): String = this?.toString().orEmpty()
         .replace('\u00A0', ' ')

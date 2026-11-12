@@ -2,7 +2,7 @@ package dev.s2tmic.companion.data
 
 import android.content.Context
 
-/** Persists the selected provider and, where supported, the selected model per provider. */
+/** Persists the selected provider, the spoken language and, where supported, the model per provider. */
 class TranscriptionSettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
@@ -27,10 +27,18 @@ class TranscriptionSettingsStore(context: Context) {
         }
     }
 
+    /** ISO-639-1 code of the spoken language, or blank to let the model detect it. */
+    fun language(): String = preferences.getString(KEY_LANGUAGE, null).orEmpty()
+
+    fun setLanguage(code: String) {
+        preferences.edit().putString(KEY_LANGUAGE, code).apply()
+    }
+
     private fun modelKey(provider: TranscriptionProvider) = "${provider.id}_model"
 
     private companion object {
         const val PREFERENCES = "transcription_settings"
         const val KEY_PROVIDER = "provider"
+        const val KEY_LANGUAGE = "language"
     }
 }

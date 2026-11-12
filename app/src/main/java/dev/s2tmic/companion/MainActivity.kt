@@ -4,10 +4,14 @@ import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,10 +21,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -59,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import dev.s2tmic.companion.accessibility.DictationAccessibilityService
+import dev.s2tmic.companion.data.TranscriptionLanguage
 import dev.s2tmic.companion.data.TranscriptionProvider
 import dev.s2tmic.companion.network.SttModel
 import dev.s2tmic.companion.network.SttModelsClient
@@ -71,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private var positionLocked by mutableStateOf(false)
     private var selectedProvider by mutableStateOf(TranscriptionProvider.Groq)
     private var selectedModel by mutableStateOf(TranscriptionProvider.Groq.defaultModel)
+    private var selectedLanguage by mutableStateOf(TranscriptionLanguage.Auto)
     private var openRouterModels by mutableStateOf<List<SttModel>>(emptyList())
     private var modelsLoading by mutableStateOf(false)
     private var modelsError by mutableStateOf<String?>(null)
@@ -81,6 +90,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The screen is always light, so the system bars need dark icons in dark mode too.
+        val lightBars = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = lightBars, navigationBarStyle = lightBars)
         refreshStatus()
         loadOpenRouterModels()
         setContent {
@@ -92,6 +104,7 @@ class MainActivity : ComponentActivity() {
                     positionLocked = positionLocked,
                     selectedProvider = selectedProvider,
                     selectedModel = selectedModel,
+                    selectedLanguage = selectedLanguage,
                     openRouterModels = openRouterModels,
                     modelsLoading = modelsLoading,
                     modelsError = modelsError,
@@ -107,6 +120,10 @@ class MainActivity : ComponentActivity() {
                         selectedModel = modelId
                     },
                     onReloadModels = { loadOpenRouterModels(force = true) },
+                    onLanguageSelected = { language ->
+                        transcriptionSettings.setLanguage(language.code)
+                        selectedLanguage = language
+                    },
                     onSaveKey = {
                         keyStore.save(selectedProvider, it)
                         keyStored = keyStore.hasKey(selectedProvider)
@@ -117,6 +134,14 @@ class MainActivity : ComponentActivity() {
                     },
                     onOpenAccessibility = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    },
+                    onOpenAppSettings = {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", packageName, null),
+                            ),
+                        )
                     },
                     onPositionLockedChange = {
                         overlaySettings.setPositionLocked(it)
@@ -141,6 +166,7 @@ class MainActivity : ComponentActivity() {
         keyStored = keyStore.hasKey(transcriptionSettings.selectedProvider())
         selectedProvider = transcriptionSettings.selectedProvider()
         selectedModel = transcriptionSettings.modelFor(selectedProvider)
+        selectedLanguage = TranscriptionLanguage.fromCode(transcriptionSettings.language())
         positionLocked = overlaySettings.isPositionLocked()
 
         val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
@@ -180,31 +206,40 @@ class MainActivity : ComponentActivity() {
         positionLocked: Boolean,
         selectedProvider: TranscriptionProvider,
         selectedModel: String,
+        selectedLanguage: TranscriptionLanguage,
         openRouterModels: List<SttModel>,
         modelsLoading: Boolean,
         modelsError: String?,
         onProviderSelected: (TranscriptionProvider) -> Unit,
         onModelSelected: (String) -> Unit,
         onReloadModels: () -> Unit,
+        onLanguageSelected: (TranscriptionLanguage) -> Unit,
         onSaveKey: (String) -> Unit,
         onDeleteKey: () -> Unit,
         onOpenAccessibility: () -> Unit,
+        onOpenAppSettings: () -> Unit,
         onPositionLockedChange: (Boolean) -> Unit,
         onResetPosition: () -> Unit,
     ) {
         var apiKey by remember { mutableStateOf("") }
         var saveMessage by remember { mutableStateOf<String?>(null) }
+        var microphoneRequestRefused by remember { mutableStateOf(false) }
         val focusManager = LocalFocusManager.current
         val permissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission(),
-        ) { refreshStatus() }
+        ) { granted ->
+            refreshStatus()
+            // After two refusals Android no longer shows the dialog; only the app settings help then.
+            microphoneRequestRefused = !granted
+        }
 
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 28.dp),
+                    .padding(horizontal = 20.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Icon(
@@ -222,6 +257,13 @@ class MainActivity : ComponentActivity() {
                     if (!microphoneGranted) {
                         Button(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
                             Text("Mikrofon erlauben")
+                        }
+                        if (microphoneRequestRefused) {
+                            Text(
+                                "Erscheint kein Dialog mehr? Dann die Berechtigung „Mikrofon“ in den App-Einstellungen erlauben.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            OutlinedButton(onClick = onOpenAppSettings) { Text("App-Einstellungen öffnen") }
                         }
                     }
                 }
@@ -252,6 +294,7 @@ class MainActivity : ComponentActivity() {
                             onReload = onReloadModels,
                         )
                     }
+                    LanguagePicker(selectedLanguage, onLanguageSelected)
                     Text(
                         if (keyStored) "Der Key liegt verschlüsselt im Android Keystore. Zum Ersetzen einen neuen eingeben."
                         else "Der Key wird nur lokal und verschlüsselt gespeichert.",
@@ -299,6 +342,14 @@ class MainActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = onOpenAccessibility) { Text("Eingabehilfe öffnen") }
+                    if (!accessibilityEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Text(
+                            "Ist der Schalter ausgegraut („Eingeschränkte Einstellung“)? Dann in der App-Info oben rechts über ⋮ „Eingeschränkte Einstellungen zulassen“ wählen und es erneut versuchen.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onOpenAppSettings) { Text("App-Info öffnen") }
+                    }
                 }
 
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -325,7 +376,8 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("So benutzt du es", fontWeight = FontWeight.Bold)
                         Text("Öffne ein Textfeld mit Gboard. Tippe auf das kleine Mic oben rechts, sprich und tippe erneut zum Einfügen.")
-                        Text("Modell: $selectedModel · mehrsprachig")
+                        Text("Lange drücken verwirft die Aufnahme. Schlägt das Senden fehl, schickt ein Tipp auf das rote Mic dieselbe Aufnahme noch einmal.")
+                        Text("Modell: $selectedModel · Sprache: ${selectedLanguage.label}")
                     }
                 }
 
@@ -391,6 +443,38 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun LanguagePicker(
+        selected: TranscriptionLanguage,
+        onSelected: (TranscriptionLanguage) -> Unit,
+    ) {
+        var expanded by remember { mutableStateOf(false) }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Sprache", style = MaterialTheme.typography.labelLarge)
+            Box {
+                OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(selected.label, maxLines = 1)
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    TranscriptionLanguage.all.forEach { language ->
+                        DropdownMenuItem(
+                            text = { Text(language.label) },
+                            onClick = {
+                                expanded = false
+                                onSelected(language)
+                            },
+                        )
+                    }
+                }
+            }
+            Text(
+                "Eine feste Sprache macht kurze Diktate genauer und schneller.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 

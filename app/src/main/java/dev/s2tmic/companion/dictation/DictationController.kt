@@ -8,11 +8,16 @@ import android.os.Looper
 import androidx.core.content.ContextCompat
 import dev.s2tmic.companion.data.ApiKeyStore
 import dev.s2tmic.companion.data.TranscriptionSettingsStore
-import dev.s2tmic.companion.network.SpeechTranscriber
+import dev.s2tmic.companion.network.TranscriptionApi
+import dev.s2tmic.companion.network.TranscriptionRequest
+import dev.s2tmic.companion.network.TranscriptionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.Call
+import java.util.concurrent.atomic.AtomicBoolean
 
+/** Runs one dictation at a time: record, upload, hand over the transcript. Main thread only. */
 class DictationController(
     private val context: Context,
     private val keyStore: ApiKeyStore,
@@ -23,19 +28,40 @@ class DictationController(
     val state: StateFlow<DictationState> = mutableState.asStateFlow()
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var transcriber: SpeechTranscriber? = null
-    private var recorder: PcmAudioRecorder? = null
+    private val clearFailure = Runnable {
+        if (mutableState.value is DictationState.Failed) {
+            retryRequest = null
+            mutableState.value = DictationState.Idle
+        }
+    }
+
+    /** Bumped whenever the current dictation ends, so callbacks that belong to an older one are dropped. */
+    private var generation = 0
+    private var recording: Recording? = null
+    private var upload: Call? = null
+    private var retryRequest: TranscriptionRequest? = null
+
+    private class Recording(
+        val recorder: PcmAudioRecorder,
+        val buffer: PcmBuffer,
+        val request: (RecordedAudio) -> TranscriptionRequest,
+    )
 
     fun toggle() {
-        when (mutableState.value) {
-            DictationState.Idle, is DictationState.Failed -> start()
-            is DictationState.Listening -> stopAndCommit()
-            is DictationState.Finalizing -> Unit
+        when (val current = mutableState.value) {
+            DictationState.Idle -> start()
+            is DictationState.Failed -> if (current.canRetry) retry() else start()
+            DictationState.Listening -> stopAndCommit()
+            DictationState.Finalizing -> Unit
         }
     }
 
     fun start() {
-        if (mutableState.value !is DictationState.Idle && mutableState.value !is DictationState.Failed) return
+        val current = mutableState.value
+        if (current == DictationState.Listening || current == DictationState.Finalizing) return
+        mainHandler.removeCallbacks(clearFailure)
+        retryRequest = null
+
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             fail("Mikrofonfreigabe fehlt. Bitte die S2T-Mic-App öffnen.")
             return
@@ -47,65 +73,123 @@ class DictationController(
             return
         }
         val model = transcriptionSettings.modelFor(provider)
+        val language = transcriptionSettings.language()
 
-        val client = SpeechTranscriber(provider, model, apiKey, object : SpeechTranscriber.Listener {
-            override fun onCompleted(transcript: String) = onMain {
-                recorder?.stop()
-                recorder = null
-                transcriber = null
-                if (transcript.isNotBlank()) onFinalTranscript(transcript)
-                mutableState.value = if (transcript.isBlank()) {
-                    DictationState.Failed("Kein gesprochener Text erkannt")
-                } else {
-                    DictationState.Idle
+        val generation = ++generation
+        val buffer = PcmBuffer(MAX_PCM_BYTES)
+        val full = AtomicBoolean(false)
+        val recorder = PcmAudioRecorder(
+            onAudio = { chunk ->
+                // A full buffer ends the dictation but keeps what was said so far.
+                if (!buffer.append(chunk) && full.compareAndSet(false, true)) {
+                    mainHandler.post { if (generation == this.generation) stopAndCommit() }
                 }
-            }
-
-            override fun onFailure(message: String) = fail(message)
-        })
-        transcriber = client
-        val audioRecorder = PcmAudioRecorder(
-            onAudio24Khz = { transcriber?.appendAudio(it) },
-            onFailure = { fail(it.localizedMessage ?: "Mikrofonfehler") },
+            },
+            onFailure = { error ->
+                mainHandler.post {
+                    if (generation == this.generation) fail(error.localizedMessage ?: "Mikrofonfehler")
+                }
+            },
         )
-        recorder = audioRecorder
-        mutableState.value = DictationState.Listening("")
-        audioRecorder.start()
+        try {
+            recorder.start()
+        } catch (error: Throwable) {
+            fail(error.localizedMessage ?: "Mikrofonfehler")
+            return
+        }
+        recording = Recording(recorder, buffer) { audio ->
+            TranscriptionRequest(provider, model, apiKey, language, audio)
+        }
+        // Only now is the microphone live, so the button turns red exactly when speaking is captured.
+        mutableState.value = DictationState.Listening
+        TranscriptionApi.warmUp(provider)
     }
 
     fun stopAndCommit() {
-        when (mutableState.value) {
-            is DictationState.Listening -> {
-                recorder?.stop()
-                recorder = null
-                mutableState.value = DictationState.Finalizing("")
-                transcriber?.transcribe()
-            }
-
-            else -> Unit
-        }
+        if (mutableState.value != DictationState.Listening) return
+        mutableState.value = DictationState.Finalizing
+        // Keep recording briefly: the stop tap usually lands on the last syllable.
+        val generation = generation
+        mainHandler.postDelayed({ if (generation == this.generation) finishRecording() }, TAIL_MS)
     }
 
+    /** Drops the running dictation, a pending upload and any recording kept for a retry. */
     fun cancel() {
-        recorder?.stop()
-        recorder = null
-        transcriber?.cancel()
-        transcriber = null
+        endCurrentWork()
+        retryRequest = null
+        mainHandler.removeCallbacks(clearFailure)
         mutableState.value = DictationState.Idle
     }
 
-    private fun fail(message: String) = onMain {
-        recorder?.stop()
-        recorder = null
-        transcriber?.cancel()
-        transcriber = null
-        mutableState.value = DictationState.Failed(message)
-        mainHandler.postDelayed({
-            if (mutableState.value is DictationState.Failed) mutableState.value = DictationState.Idle
-        }, 4_000)
+    private fun finishRecording() {
+        val finished = recording ?: return
+        recording = null
+        finished.recorder.stop()
+        val audio = finished.buffer.snapshot()
+        when {
+            audio.durationMs < MIN_AUDIO_MS -> fail("Die Aufnahme war zu kurz.")
+            audio.isSilent -> fail("Das Mikrofon liefert kein Signal. Ist es stummgeschaltet oder von einer anderen App belegt?")
+            else -> upload(finished.request(audio))
+        }
     }
 
-    private inline fun onMain(crossinline action: () -> Unit) {
-        if (Looper.myLooper() == Looper.getMainLooper()) action() else mainHandler.post { action() }
+    private fun retry() {
+        val request = retryRequest ?: return start()
+        retryRequest = null
+        mainHandler.removeCallbacks(clearFailure)
+        upload(request)
+    }
+
+    private fun upload(request: TranscriptionRequest) {
+        val generation = ++generation
+        mutableState.value = DictationState.Finalizing
+        upload = TranscriptionApi.transcribe(request) { result ->
+            mainHandler.post {
+                if (generation != this.generation) return@post
+                upload = null
+                when (result) {
+                    is TranscriptionResult.Success -> {
+                        val transcript = TranscriptFilter.clean(result.transcript)
+                        if (transcript.isEmpty()) {
+                            fail("Kein gesprochener Text erkannt")
+                        } else {
+                            mutableState.value = DictationState.Idle
+                            onFinalTranscript(transcript)
+                        }
+                    }
+
+                    is TranscriptionResult.Failure -> if (result.retryable) {
+                        retryRequest = request
+                        fail("${result.message} · Tippen zum Wiederholen", canRetry = true)
+                    } else {
+                        fail(result.message)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun fail(message: String, canRetry: Boolean = false) {
+        endCurrentWork()
+        if (!canRetry) retryRequest = null
+        mutableState.value = DictationState.Failed(message, canRetry)
+        mainHandler.removeCallbacks(clearFailure)
+        mainHandler.postDelayed(clearFailure, if (canRetry) RETRY_WINDOW_MS else FAILURE_VISIBLE_MS)
+    }
+
+    private fun endCurrentWork() {
+        generation++
+        recording?.recorder?.stop()
+        recording = null
+        upload?.cancel()
+        upload = null
+    }
+
+    private companion object {
+        const val TAIL_MS = 200L
+        const val MIN_AUDIO_MS = 400L
+        const val FAILURE_VISIBLE_MS = 4_000L
+        const val RETRY_WINDOW_MS = 15_000L
+        const val MAX_PCM_BYTES = 5 * 60 * PcmAudio.BYTES_PER_SECOND // 9.6 MB, well below the 25 MB upload limit
     }
 }

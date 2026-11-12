@@ -1,11 +1,11 @@
 package dev.s2tmic.companion.data
 
 import android.content.Context
-import android.content.res.Configuration
+import dev.s2tmic.companion.accessibility.OverlayAnchor
+import dev.s2tmic.companion.accessibility.OverlayOffsets
 
-data class OverlayPosition(val x: Int, val y: Int)
-
-class OverlaySettingsStore(private val context: Context) {
+/** Persists where the user dragged the overlay, separately for portrait and landscape. */
+class OverlaySettingsStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     fun isPositionLocked(): Boolean = preferences.getBoolean(KEY_LOCKED, false)
@@ -14,50 +14,55 @@ class OverlaySettingsStore(private val context: Context) {
         preferences.edit().putBoolean(KEY_LOCKED, locked).apply()
     }
 
-    fun loadPosition(): OverlayPosition? {
-        val suffix = orientationSuffix()
-        val xKey = "${KEY_X}_$suffix"
-        val yKey = "${KEY_Y}_$suffix"
-        if (!preferences.contains(xKey) || !preferences.contains(yKey)) return null
-        return OverlayPosition(preferences.getInt(xKey, 0), preferences.getInt(yKey, 0))
+    /** The dragged position relative to the keyboard, or null while the default position is in use. */
+    fun loadAnchor(landscape: Boolean): OverlayAnchor? {
+        val suffix = suffix(landscape)
+        val rightKey = "${KEY_ANCHOR_RIGHT}_$suffix"
+        val topKey = "${KEY_ANCHOR_TOP}_$suffix"
+        if (!preferences.contains(rightKey) || !preferences.contains(topKey)) return null
+        return OverlayAnchor(preferences.getInt(rightKey, 0), preferences.getInt(topKey, 0))
     }
 
-    fun savePosition(x: Int, y: Int) {
-        val suffix = orientationSuffix()
+    fun saveAnchor(landscape: Boolean, anchor: OverlayAnchor) {
+        val suffix = suffix(landscape)
         preferences.edit()
-            .putInt("${KEY_X}_$suffix", x)
-            .putInt("${KEY_Y}_$suffix", y)
+            .putInt("${KEY_ANCHOR_RIGHT}_$suffix", anchor.fromRight)
+            .putInt("${KEY_ANCHOR_TOP}_$suffix", anchor.aboveTop)
+            .remove("${KEY_LEGACY_X}_$suffix")
+            .remove("${KEY_LEGACY_Y}_$suffix")
             .apply()
+    }
+
+    /** Screen-relative window offsets saved by versions that did not anchor the overlay to the keyboard. */
+    fun loadLegacyOffsets(landscape: Boolean): OverlayOffsets? {
+        val suffix = suffix(landscape)
+        val xKey = "${KEY_LEGACY_X}_$suffix"
+        val yKey = "${KEY_LEGACY_Y}_$suffix"
+        if (!preferences.contains(xKey) || !preferences.contains(yKey)) return null
+        return OverlayOffsets(preferences.getInt(xKey, 0), preferences.getInt(yKey, 0))
     }
 
     fun clearPositions() {
-        preferences.edit()
-            .remove("${KEY_X}_portrait")
-            .remove("${KEY_Y}_portrait")
-            .remove("${KEY_X}_landscape")
-            .remove("${KEY_Y}_landscape")
-            .putBoolean(KEY_RESET_REQUESTED, true)
-            .apply()
+        preferences.edit().apply {
+            for (suffix in listOf(suffix(landscape = false), suffix(landscape = true))) {
+                remove("${KEY_ANCHOR_RIGHT}_$suffix")
+                remove("${KEY_ANCHOR_TOP}_$suffix")
+                remove("${KEY_LEGACY_X}_$suffix")
+                remove("${KEY_LEGACY_Y}_$suffix")
+            }
+            remove(KEY_LEGACY_RESET_REQUESTED)
+        }.apply()
     }
 
-    fun isResetRequested(): Boolean = preferences.getBoolean(KEY_RESET_REQUESTED, false)
-
-    fun consumeResetRequest() {
-        preferences.edit().putBoolean(KEY_RESET_REQUESTED, false).apply()
-    }
-
-    private fun orientationSuffix(): String =
-        if (context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            "landscape"
-        } else {
-            "portrait"
-        }
+    private fun suffix(landscape: Boolean): String = if (landscape) "landscape" else "portrait"
 
     private companion object {
         const val PREFERENCES = "overlay_settings"
         const val KEY_LOCKED = "position_locked"
-        const val KEY_X = "position_x"
-        const val KEY_Y = "position_y"
-        const val KEY_RESET_REQUESTED = "position_reset_requested"
+        const val KEY_ANCHOR_RIGHT = "anchor_right"
+        const val KEY_ANCHOR_TOP = "anchor_top"
+        const val KEY_LEGACY_X = "position_x"
+        const val KEY_LEGACY_Y = "position_y"
+        const val KEY_LEGACY_RESET_REQUESTED = "position_reset_requested"
     }
 }

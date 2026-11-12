@@ -92,6 +92,36 @@ class TextInsertionTest {
     }
 
     @Test
+    fun keepsRealWebEditorTextWhenSelectionIsUnknown() {
+        assertEquals(
+            "Schreibe mir, wenn du da bist.",
+            TextInsertion.editableText(
+                "Schreibe mir, wenn du da bist.",
+                null,
+                false,
+                className = "android.webkit.WebView",
+                packageName = "com.android.chrome",
+            ),
+        )
+    }
+
+    @Test
+    fun treatsLooseWebPlaceholderAsEmptyTextWhenCaretIsAtStart() {
+        assertEquals(
+            "",
+            TextInsertion.editableText(
+                "Suche in Google",
+                null,
+                false,
+                className = "android.webkit.WebView",
+                packageName = "com.android.chrome",
+                selectionStart = 0,
+                selectionEnd = 0,
+            ),
+        )
+    }
+
+    @Test
     fun normalizesPlaceholderWhitespace() {
         assertEquals("", TextInsertion.editableText("Message\u00A0", "\u200BMessage", false))
     }
@@ -139,5 +169,21 @@ class TextInsertionTest {
     fun preparesNaturalSpacingForDirectPaste() {
         assertEquals(" schöne ", TextInsertion.forPaste("HalloWelt", 5, 5, "schöne"))
         assertEquals("Hallo", TextInsertion.forPaste("", 0, 0, " Hallo "))
+    }
+
+    @Test
+    fun spacesTranscriptBetweenSurroundingCharacters() {
+        assertEquals("Hallo", TextInsertion.withSpacing(null, null, " Hallo "))
+        assertEquals(" Hallo", TextInsertion.withSpacing('.', null, "Hallo"))
+        assertEquals("Hallo ", TextInsertion.withSpacing(null, 'W', "Hallo"))
+        assertEquals("Hallo", TextInsertion.withSpacing(' ', ' ', "Hallo"))
+        assertEquals("Hallo", TextInsertion.withSpacing('\n', '.', "Hallo"))
+        assertEquals("", TextInsertion.withSpacing('a', 'b', "  "))
+    }
+
+    @Test
+    fun doesNotPutSpaceAfterOpeningBracketOrQuote() {
+        assertEquals("Hallo", TextInsertion.withSpacing('(', ')', "Hallo"))
+        assertEquals("Hallo", TextInsertion.withSpacing('„', null, "Hallo"))
     }
 }

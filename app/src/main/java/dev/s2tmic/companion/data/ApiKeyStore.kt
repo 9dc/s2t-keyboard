@@ -30,6 +30,10 @@ class ApiKeyStore(context: Context) {
             .apply()
     }
 
+    /**
+     * Returns null when no key is stored or it cannot be decrypted right now. The stored key is kept
+     * in that case: Keystore errors can be temporary, and saving a new key overwrites it anyway.
+     */
     fun load(provider: TranscriptionProvider): String? = runCatching {
         val encrypted = preferences.getString(ciphertextKey(provider), null) ?: return null
         val iv = preferences.getString(ivKey(provider), null) ?: return null
@@ -40,10 +44,7 @@ class ApiKeyStore(context: Context) {
             GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)),
         )
         String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)), Charsets.UTF_8)
-    }.getOrElse {
-        clear(provider)
-        null
-    }
+    }.getOrNull()
 
     fun hasKey(provider: TranscriptionProvider): Boolean = !load(provider).isNullOrBlank()
 
